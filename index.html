@@ -6,9 +6,17 @@
   <title>Power List</title>
   <link rel="icon" type="image/png" sizes="256x256" href="favicon.png" />
   <link rel="apple-touch-icon" href="favicon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#F6F0DE" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Power List" />
 
   <!-- Tailwind CSS (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Supabase (cloud sync) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -72,6 +80,13 @@
     }
     .card-in { animation: cardIn 180ms cubic-bezier(0.4, 0, 0.2, 1) both; }
 
+    /* Touch drag: avoid text selection / callout while long-pressing cards */
+    [data-task-id] {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+
     .nice-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
     .nice-scroll::-webkit-scrollbar-thumb { background: #D8C9A4; border-radius: 99px; }
     .nice-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -101,6 +116,14 @@
       </nav>
 
       <div class="ml-auto flex items-center gap-2">
+        <button id="syncBtn" type="button" title="Sync across devices" aria-label="Sync settings"
+          class="relative grid h-9 w-9 place-items-center rounded-xl bg-paper-50 text-ink-400 ring-1 ring-ink-900/10 shadow-card transition hover:bg-paper-200 hover:text-ink-700">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M17.5 18.5H7a4.5 4.5 0 0 1-.4-9A6 6 0 0 1 18.3 11a3.8 3.8 0 0 1-.8 7.5Z"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span id="syncDot" class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-ink-300 ring-2 ring-paper-50"></span>
+        </button>
         <button id="exportBtn" type="button" title="Export all data to a backup file" aria-label="Export data"
           class="grid h-9 w-9 place-items-center rounded-xl bg-paper-50 text-ink-400 ring-1 ring-ink-900/10 shadow-card transition hover:bg-paper-200 hover:text-ink-700">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -324,6 +347,54 @@
       class="mt-4 w-full rounded-xl bg-moss-600 py-2 text-sm font-bold text-paper-50 transition hover:bg-moss-500 active:scale-[0.99]">
       ✓ Mark task done
     </button>
+  </div>
+
+  <!-- ===================== Sync modal ===================== -->
+  <div id="syncModal" class="fixed inset-0 z-[80] hidden items-center justify-center px-4" role="dialog" aria-modal="true">
+    <div id="syncModalBackdrop" class="absolute inset-0 bg-ink-900/40 backdrop-blur-sm"></div>
+
+    <div class="relative w-full max-w-sm rounded-2xl bg-paper-50 p-6 shadow-lift">
+      <div class="flex items-start justify-between gap-3">
+        <h3 class="font-serif text-lg font-semibold tracking-tight text-ink-900">Sync across devices</h3>
+        <button id="syncModalCloseBtn" type="button" aria-label="Close"
+          class="grid h-8 w-8 place-items-center rounded-lg text-ink-300 transition hover:bg-paper-200 hover:text-ink-500">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Signed out -->
+      <div id="syncSignedOut" class="mt-4 space-y-3">
+        <p class="text-sm text-ink-500">
+          Sign in with your email to keep your tasks identical and live-updated on every device.
+          No password — we'll email you a sign-in link.
+        </p>
+        <form id="syncForm" class="space-y-2">
+          <input id="syncEmailInput" type="email" required autocomplete="email" placeholder="you@example.com"
+            class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <button id="syncSendBtn" type="submit"
+            class="w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-paper-50 shadow-card transition hover:bg-brand-600 disabled:opacity-50">
+            Send sign-in link
+          </button>
+        </form>
+        <p id="syncSentMsg" class="hidden rounded-xl bg-moss-50 px-3 py-2 text-xs text-moss-700 ring-1 ring-moss-200"></p>
+      </div>
+
+      <!-- Signed in -->
+      <div id="syncSignedIn" class="mt-4 hidden space-y-3">
+        <p class="text-sm text-ink-500">Signed in as <span id="syncEmailLabel" class="font-semibold text-ink-700"></span></p>
+        <p id="syncStateLabel" class="rounded-xl bg-paper-200/60 px-3 py-2 text-xs text-ink-500 ring-1 ring-ink-900/10"></p>
+        <button id="syncSignOutBtn" type="button"
+          class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-clay-600 ring-1 ring-clay-200 transition hover:bg-clay-50">
+          Sign out on this device
+        </button>
+      </div>
+
+      <p id="syncUnavailable" class="mt-4 hidden text-sm text-ink-400">
+        The sync library could not load (no internet?). The app keeps working locally and will offer sync next time it loads online.
+      </p>
+    </div>
   </div>
 
   <!-- ===================== Task modal ===================== -->
@@ -556,6 +627,7 @@
     function saveTasks() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
       writeBackup();
+      markLocalChange();
     }
 
     function loadTasks() {
@@ -614,6 +686,7 @@
     function saveTagLibrary() {
       localStorage.setItem(TAGS_KEY, JSON.stringify(tagLibrary));
       writeBackup();
+      markLocalChange();
     }
 
     function loadTagLibrary() {
@@ -992,6 +1065,8 @@
         removeDropIndicator();
         document.querySelectorAll(".dropzone-active").forEach((z) => z.classList.remove("dropzone-active"));
       });
+
+      if (!task.completed) attachTouchDrag(node, task);
     }
 
     function cardAfterPosition(container, y) {
@@ -1031,33 +1106,146 @@
         e.preventDefault();
         zone.classList.remove("dropzone-active");
         const id = draggedTaskId || e.dataTransfer.getData("text/plain");
-        const task = tasks.find((t) => t.id === id);
         removeDropIndicator();
-        if (!task) return;
-
-        if (zone.dataset.dropzone === "tray") {
-          // Park the task as "incomplete" by dating it yesterday.
-          task.date = addDaysISO(todayISO(), -1);
-          task.completed = false;
-          task.completedAt = null;
-        } else {
-          const targetDate = zone.dataset.date;
-          const after = cardAfterPosition(zone, e.clientY);
-          task.date = targetDate;
-
-          // Rebuild manual order for the target day with the task inserted at
-          // the drop point. (Timed tasks still sort by their time stamp.)
-          const dayList = tasksForDay(targetDate).filter((t) => t.id !== task.id);
-          const insertAt = after
-            ? dayList.findIndex((t) => t.id === after.dataset.taskId)
-            : dayList.length;
-          dayList.splice(insertAt === -1 ? dayList.length : insertAt, 0, task);
-          dayList.forEach((t, i) => { t.order = i; });
-        }
-
-        saveTasks();
-        render();
+        performDrop(zone, id, e.clientY);
       });
+    }
+
+    /** Shared drop logic for both mouse (HTML5) and touch drags. */
+    function performDrop(zone, taskId, clientY) {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+
+      if (zone.dataset.dropzone === "tray") {
+        // Park the task as "incomplete" by dating it yesterday.
+        task.date = addDaysISO(todayISO(), -1);
+        task.completed = false;
+        task.completedAt = null;
+      } else {
+        const targetDate = zone.dataset.date;
+        const after = cardAfterPosition(zone, clientY);
+        task.date = targetDate;
+
+        // Rebuild manual order for the target day with the task inserted at
+        // the drop point. (Timed tasks still sort by their time stamp.)
+        const dayList = tasksForDay(targetDate).filter((t) => t.id !== task.id);
+        const insertAt = after
+          ? dayList.findIndex((t) => t.id === after.dataset.taskId)
+          : dayList.length;
+        dayList.splice(insertAt === -1 ? dayList.length : insertAt, 0, task);
+        dayList.forEach((t, i) => { t.order = i; });
+      }
+
+      saveTasks();
+      render();
+    }
+
+    // ---------- Touch drag (iOS Safari has no native HTML5 drag events) ----------
+    const touchState = {
+      task: null, node: null, ghost: null, timer: null,
+      startX: 0, startY: 0, offsetX: 0, offsetY: 0, active: false,
+    };
+
+    function zoneUnderPoint(x, y) {
+      const under = document.elementFromPoint(x, y);
+      return under ? under.closest("[data-dropzone]") : null;
+    }
+
+    function beginTouchDrag(x, y) {
+      if (!touchState.node) return;
+      touchState.active = true;
+      draggedTaskId = touchState.task.id;
+      touchState.node.classList.add("dragging");
+
+      const rect = touchState.node.getBoundingClientRect();
+      const ghost = touchState.node.cloneNode(true);
+      ghost.style.cssText =
+        `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;` +
+        "z-index:90;pointer-events:none;opacity:0.92;margin:0;" +
+        "transform:rotate(2deg) scale(1.02);box-shadow:0 10px 30px rgba(38,33,25,0.25);";
+      document.body.appendChild(ghost);
+      touchState.ghost = ghost;
+      touchState.offsetX = x - rect.left;
+      touchState.offsetY = y - rect.top;
+      moveTouchDrag(x, y);
+    }
+
+    function moveTouchDrag(x, y) {
+      if (!touchState.ghost) return;
+      touchState.ghost.style.left = (x - touchState.offsetX) + "px";
+      touchState.ghost.style.top = (y - touchState.offsetY) + "px";
+
+      const zone = zoneUnderPoint(x, y);
+      document.querySelectorAll(".dropzone-active").forEach((z) => {
+        if (z !== zone) z.classList.remove("dropzone-active");
+      });
+      removeDropIndicator();
+      if (zone) {
+        zone.classList.add("dropzone-active");
+        if (zone.dataset.dropzone === "day") {
+          const after = cardAfterPosition(zone, y);
+          const ind = getDropIndicator();
+          if (after) zone.insertBefore(ind, after);
+          else zone.appendChild(ind);
+        }
+      }
+    }
+
+    function finishTouchDrag(x, y) {
+      const zone = zoneUnderPoint(x, y);
+      const id = draggedTaskId;
+      if (touchState.ghost) touchState.ghost.remove();
+      touchState.ghost = null;
+      touchState.active = false;
+      if (touchState.node) touchState.node.classList.remove("dragging");
+      removeDropIndicator();
+      document.querySelectorAll(".dropzone-active").forEach((z) => z.classList.remove("dropzone-active"));
+      draggedTaskId = null;
+      if (zone && id) performDrop(zone, id, y);
+    }
+
+    function attachTouchDrag(node, task) {
+      node.addEventListener("touchstart", (e) => {
+        if (e.touches.length !== 1) return;
+        const t0 = e.touches[0];
+        touchState.task = task;
+        touchState.node = node;
+        touchState.startX = t0.clientX;
+        touchState.startY = t0.clientY;
+        touchState.active = false;
+        clearTimeout(touchState.timer);
+        // Long-press to pick up, so normal page scrolling keeps working.
+        touchState.timer = setTimeout(() => beginTouchDrag(t0.clientX, t0.clientY), 220);
+      }, { passive: true });
+
+      node.addEventListener("touchmove", (e) => {
+        if (touchState.node !== node) return;
+        const t0 = e.touches[0];
+        if (!touchState.active) {
+          // Finger moved before the long-press fired: it's a scroll, not a drag.
+          if (Math.hypot(t0.clientX - touchState.startX, t0.clientY - touchState.startY) > 12) {
+            clearTimeout(touchState.timer);
+            touchState.node = null;
+          }
+          return;
+        }
+        e.preventDefault(); // we own the gesture — stop the page from scrolling
+        moveTouchDrag(t0.clientX, t0.clientY);
+      }, { passive: false });
+
+      const endTouch = (e) => {
+        if (touchState.node !== node) return;
+        clearTimeout(touchState.timer);
+        if (touchState.active) {
+          if (e.cancelable) e.preventDefault(); // suppress the synthetic click
+          const t0 = (e.changedTouches && e.changedTouches[0]) || null;
+          finishTouchDrag(t0 ? t0.clientX : 0, t0 ? t0.clientY : 0);
+        }
+        touchState.node = null;
+        touchState.task = null;
+      };
+      node.addEventListener("touchend", endTouch);
+      node.addEventListener("touchcancel", endTouch);
     }
 
     // ---------- Focus timer ----------
@@ -1560,7 +1748,13 @@
     el("taskCancelBtn").addEventListener("click", closeTaskModal);
     el("taskModalBackdrop").addEventListener("click", closeTaskModal);
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !taskModal.classList.contains("hidden")) closeTaskModal();
+      if (e.key !== "Escape") return;
+      if (!taskModal.classList.contains("hidden")) closeTaskModal();
+      const syncModal = el("syncModal");
+      if (!syncModal.classList.contains("hidden")) {
+        syncModal.classList.add("hidden");
+        syncModal.classList.remove("flex");
+      }
     });
 
     // ---------- Export / import ----------
@@ -1600,6 +1794,232 @@
       } catch {
         alert("This file doesn't look like a Power List backup.");
       }
+    });
+
+    /* =====================================================================
+     * Cloud sync (Supabase)
+     * The whole state lives in one row per user: { tasks, tags, updatedAt,
+     * deviceId }. Last write wins; realtime pushes changes to other devices
+     * instantly. localStorage stays the offline cache, so the app works
+     * without internet and reconciles when back online.
+     * ===================================================================== */
+    const SUPABASE_URL = "https://zsismqppqopiscomlhrr.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpzaXNtcXBwcW9waXNjb21saHJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyODQ0MDcsImV4cCI6MjA5Njg2MDQwN30.z9g_dMmW3NffCHGNdApwI18ixaJrrY3D0Cx0apDZMsg";
+    const META_KEY = "powerlist_meta_v1";
+
+    const sbClient = (typeof window.supabase !== "undefined" && window.supabase.createClient)
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      : null;
+
+    const syncState = {
+      user: null,
+      pushTimer: null,
+      applyingRemote: false,
+      channel: null,
+    };
+
+    let meta = (() => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(META_KEY) || "{}");
+        return {
+          updatedAt: Number(parsed.updatedAt) || 0,
+          deviceId: typeof parsed.deviceId === "string" && parsed.deviceId ? parsed.deviceId : uid(),
+        };
+      } catch {
+        return { updatedAt: 0, deviceId: uid() };
+      }
+    })();
+
+    function saveMeta() {
+      try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch { /* full */ }
+    }
+
+    function markLocalChange() {
+      if (syncState.applyingRemote) return;
+      meta.updatedAt = Date.now();
+      saveMeta();
+      schedulePush();
+    }
+
+    function setSyncStatus(status) {
+      const colors = {
+        synced: "bg-moss-500",
+        syncing: "bg-ochre-400",
+        offline: "bg-clay-500",
+        local: "bg-ink-300",
+      };
+      el("syncDot").className =
+        "absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-paper-50 " +
+        (colors[status] || "bg-ink-300");
+      el("syncBtn").title = {
+        synced: "Synced across devices",
+        syncing: "Syncing…",
+        offline: "Offline — will sync when back online",
+        local: "Local only — click to set up sync",
+      }[status] || "Sync";
+      el("syncStateLabel").textContent = {
+        synced: "All changes synced. Other devices update live.",
+        syncing: "Syncing…",
+        offline: "Offline — changes are saved locally and will sync when you're back online.",
+        local: "Working locally on this device.",
+      }[status] || "";
+    }
+
+    function adoptCloudDoc(doc) {
+      syncState.applyingRemote = true;
+      try {
+        tasks = normalizeTasks(Array.isArray(doc.tasks) ? doc.tasks : []);
+        const cloudTags = Array.isArray(doc.tags) ? doc.tags.map((x) => capitalizeFirst(String(x))) : [];
+        tagLibrary = [...new Set([...cloudTags, ...tasks.flatMap((t) => t.tags)])]
+          .sort((a, b) => a.localeCompare(b));
+        meta.updatedAt = Number(doc.updatedAt) || Date.now();
+        saveMeta();
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+          localStorage.setItem(TAGS_KEY, JSON.stringify(tagLibrary));
+        } catch { /* full */ }
+        writeBackup();
+        render();
+      } finally {
+        syncState.applyingRemote = false;
+      }
+    }
+
+    function schedulePush() {
+      if (!sbClient || !syncState.user) return;
+      clearTimeout(syncState.pushTimer);
+      syncState.pushTimer = setTimeout(pushToCloud, 800);
+    }
+
+    async function pushToCloud() {
+      if (!sbClient || !syncState.user) return;
+      setSyncStatus("syncing");
+      try {
+        const { error } = await sbClient.from("lists").upsert({
+          user_id: syncState.user.id,
+          data: { tasks, tags: tagLibrary, updatedAt: meta.updatedAt, deviceId: meta.deviceId },
+          updated_at: new Date().toISOString(),
+        });
+        setSyncStatus(error ? "offline" : "synced");
+      } catch {
+        setSyncStatus("offline");
+      }
+    }
+
+    async function pullFromCloud() {
+      if (!sbClient || !syncState.user) return;
+      setSyncStatus("syncing");
+      try {
+        const { data, error } = await sbClient
+          .from("lists").select("data").eq("user_id", syncState.user.id).maybeSingle();
+        if (error) { setSyncStatus("offline"); return; }
+        if (!data) { await pushToCloud(); return; } // first device seeds the cloud
+        const doc = data.data || {};
+        const cloudUpdatedAt = Number(doc.updatedAt) || 0;
+        if (cloudUpdatedAt > meta.updatedAt) adoptCloudDoc(doc);
+        else if (cloudUpdatedAt < meta.updatedAt) { await pushToCloud(); return; }
+        setSyncStatus("synced");
+      } catch {
+        setSyncStatus("offline");
+      }
+    }
+
+    function startRealtime() {
+      if (!sbClient || !syncState.user || syncState.channel) return;
+      syncState.channel = sbClient
+        .channel("powerlist-sync")
+        .on("postgres_changes",
+          { event: "*", schema: "public", table: "lists", filter: `user_id=eq.${syncState.user.id}` },
+          (payload) => {
+            const doc = payload.new && payload.new.data;
+            if (!doc || doc.deviceId === meta.deviceId) return; // ignore our own writes
+            if ((Number(doc.updatedAt) || 0) > meta.updatedAt) adoptCloudDoc(doc);
+          })
+        .subscribe();
+    }
+
+    function stopRealtime() {
+      if (syncState.channel && sbClient) sbClient.removeChannel(syncState.channel);
+      syncState.channel = null;
+    }
+
+    function updateSyncModalUI() {
+      const signedIn = Boolean(syncState.user);
+      el("syncSignedOut").classList.toggle("hidden", signedIn || !sbClient);
+      el("syncSignedIn").classList.toggle("hidden", !signedIn);
+      el("syncUnavailable").classList.toggle("hidden", Boolean(sbClient));
+    }
+
+    async function handleSignedIn(user) {
+      syncState.user = user;
+      el("syncEmailLabel").textContent = user.email || "";
+      updateSyncModalUI();
+      await pullFromCloud();
+      startRealtime();
+    }
+
+    function handleSignedOut() {
+      syncState.user = null;
+      stopRealtime();
+      setSyncStatus("local");
+      updateSyncModalUI();
+    }
+
+    async function initSync() {
+      setSyncStatus("local");
+      updateSyncModalUI();
+      if (!sbClient) return;
+      try {
+        const { data } = await sbClient.auth.getSession();
+        if (data && data.session) await handleSignedIn(data.session.user);
+        sbClient.auth.onAuthStateChange((event, session) => {
+          if (event === "SIGNED_IN" && session && !syncState.user) handleSignedIn(session.user);
+          if (event === "SIGNED_OUT") handleSignedOut();
+        });
+      } catch { setSyncStatus("offline"); }
+
+      // Reconcile whenever connectivity or visibility returns.
+      window.addEventListener("online", () => { if (syncState.user) pullFromCloud(); });
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && syncState.user) pullFromCloud();
+      });
+    }
+
+    function setSyncModalOpen(open) {
+      el("syncModal").classList.toggle("hidden", !open);
+      el("syncModal").classList.toggle("flex", open);
+    }
+
+    el("syncBtn").addEventListener("click", () => {
+      updateSyncModalUI();
+      setSyncModalOpen(true);
+    });
+    el("syncModalCloseBtn").addEventListener("click", () => setSyncModalOpen(false));
+    el("syncModalBackdrop").addEventListener("click", () => setSyncModalOpen(false));
+
+    el("syncForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = el("syncEmailInput").value.trim();
+      if (!email || !sbClient) return;
+      el("syncSendBtn").disabled = true;
+      try {
+        const { error } = await sbClient.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: location.origin + location.pathname },
+        });
+        el("syncSentMsg").textContent = error
+          ? "Could not send the link: " + error.message
+          : "Link sent — open the email on this device and tap the link to finish signing in.";
+      } catch {
+        el("syncSentMsg").textContent = "Could not send the link — check your internet connection.";
+      }
+      el("syncSentMsg").classList.remove("hidden");
+      el("syncSendBtn").disabled = false;
+    });
+
+    el("syncSignOutBtn").addEventListener("click", async () => {
+      try { if (sbClient) await sbClient.auth.signOut(); } catch { /* already out */ }
+      handleSignedOut();
     });
 
     // ---------- Top-level events ----------
@@ -1673,12 +2093,20 @@
     (function init() {
       tasks = loadTasks();
       tagLibrary = loadTagLibrary();
-      saveTagLibrary();
+      // Persist the merged library WITHOUT bumping the change clock — a plain
+      // page load must not make local data look newer than the cloud copy.
+      try { localStorage.setItem(TAGS_KEY, JSON.stringify(tagLibrary)); } catch { /* full */ }
       const now = new Date();
       ui.calYear = now.getFullYear();
       ui.calMonth = now.getMonth();
       ui.selectedHistoryDate = todayISO();
       render();
+      initSync();
+
+      // Offline support when hosted (PWA). No-op on file:// or in tests.
+      if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+        navigator.serviceWorker.register("sw.js").catch(() => { /* optional */ });
+      }
     })();
   </script>
 </body>
