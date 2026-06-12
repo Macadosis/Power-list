@@ -1,0 +1,1685 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Power List</title>
+  <link rel="icon" type="image/png" sizes="256x256" href="favicon.png" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            serif: ['Fraunces', 'Georgia', 'Times New Roman', 'serif'],
+          },
+          colors: {
+            /* Vintage entomology-plate palette */
+            paper: { 50: '#FCF8EC', 100: '#F6F0DE', 200: '#F0E7D0', 300: '#E6DABD', 400: '#D8C9A4' },
+            ink:   { 300: '#9C9081', 400: '#7C7163', 500: '#5C5347', 700: '#3A332B', 900: '#262119' },
+            /* Calm sage-teal primary, drawn from the butterfly wings. */
+            brand: { 50: '#EFF4EF', 100: '#E0EAE1', 200: '#C8DACB', 500: '#7C9D87', 600: '#62836E', 700: '#4E6A59' },
+            moss:  { 50: '#EAF1E2', 100: '#DCE8CF', 200: '#C2D6AC', 500: '#82A98D', 600: '#5E8770', 700: '#476B58' },
+            ochre: { 50: '#FAF1D8', 100: '#F4E5BC', 200: '#EAD292', 400: '#DFB668', 600: '#A88543', 700: '#8A6C35' },
+            denim: { 100: '#DCE4ED', 500: '#8299B4', 700: '#5C7390' },
+            /* Soft clay rose, reserved for delete actions only. */
+            clay:  { 50: '#F6ECE7', 200: '#E5C6BA', 500: '#B9846F', 600: '#9D6953' },
+          },
+          boxShadow: {
+            card: '0 1px 2px rgba(38, 33, 25, 0.08), 0 1px 3px rgba(38, 33, 25, 0.10)',
+            lift: '0 10px 30px rgba(38, 33, 25, 0.22)',
+          },
+        },
+      },
+    };
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    body {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Drag & drop visuals */
+    .dragging {
+      opacity: 0.45;
+      transform: rotate(2deg) scale(0.98);
+    }
+    .dropzone-active {
+      outline: 2px dashed #7C9D87;
+      outline-offset: -2px;
+      background-color: #EFF4EF !important;
+    }
+    .drop-indicator {
+      height: 3px;
+      border-radius: 99px;
+      background: #7C9D87;
+      margin: 2px 0;
+      pointer-events: none;
+    }
+
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .card-in { animation: cardIn 180ms cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+    .nice-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
+    .nice-scroll::-webkit-scrollbar-thumb { background: #D8C9A4; border-radius: 99px; }
+    .nice-scroll::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+
+<body class="min-h-screen bg-paper-100 font-sans text-ink-700">
+
+  <!-- ===================== Top bar ===================== -->
+  <header class="sticky top-0 z-30 border-b border-ink-900/10 bg-paper-50/90 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3 sm:px-6">
+      <div class="flex items-center gap-2.5">
+        <div class="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-paper-50 ring-1 ring-ink-900/10 shadow-card">
+          <img src="favicon.png" alt="" class="h-8 w-8 object-contain" />
+        </div>
+        <h1 class="font-serif text-xl font-semibold tracking-tight text-ink-900">Power List</h1>
+      </div>
+
+      <!-- View tabs -->
+      <nav class="ml-2 flex items-center gap-1 rounded-xl bg-paper-300/50 p-1">
+        <button id="tabBoard" type="button" data-view="board"
+          class="viewTab rounded-lg px-3.5 py-1.5 text-sm font-semibold transition">Board</button>
+        <button id="tabHistory" type="button" data-view="history"
+          class="viewTab rounded-lg px-3.5 py-1.5 text-sm font-semibold transition">History</button>
+        <button id="tabDashboard" type="button" data-view="dashboard"
+          class="viewTab rounded-lg px-3.5 py-1.5 text-sm font-semibold transition">Dashboard</button>
+      </nav>
+
+      <div class="ml-auto flex items-center gap-2">
+        <button id="exportBtn" type="button" title="Export all data to a backup file" aria-label="Export data"
+          class="grid h-9 w-9 place-items-center rounded-xl bg-paper-50 text-ink-400 ring-1 ring-ink-900/10 shadow-card transition hover:bg-paper-200 hover:text-ink-700">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M4 19h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+          </svg>
+        </button>
+        <button id="importBtn" type="button" title="Import data from a backup file" aria-label="Import data"
+          class="grid h-9 w-9 place-items-center rounded-xl bg-paper-50 text-ink-400 ring-1 ring-ink-900/10 shadow-card transition hover:bg-paper-200 hover:text-ink-700">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 15V3M7 8l5-5 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M4 19h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+          </svg>
+        </button>
+        <input id="importFileInput" type="file" accept="application/json,.json" class="hidden" />
+        <button id="newTaskBtn" type="button"
+          class="ml-1 inline-flex items-center gap-2 rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-paper-50 shadow-card transition hover:bg-brand-600 active:scale-[0.98]">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+          </svg>
+          New task
+        </button>
+      </div>
+    </div>
+
+    <!-- Tag filter bar -->
+    <div id="tagFilterBar" class="mx-auto hidden max-w-7xl items-center gap-2 overflow-x-auto px-4 pt-1 pb-3 sm:px-6 nice-scroll">
+      <span class="shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-300">Filter</span>
+      <div id="tagFilterChips" class="flex items-center gap-1.5"></div>
+    </div>
+  </header>
+
+  <!-- ===================== Board view ===================== -->
+  <main id="boardView" class="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+
+    <!-- Day window navigation -->
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <h2 id="windowLabel" class="font-serif text-lg font-semibold tracking-tight text-ink-900"></h2>
+        <button id="backToTodayBtn" type="button"
+          class="hidden rounded-lg bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-600 ring-1 ring-brand-200 transition hover:bg-brand-100">
+          Back to today
+        </button>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <button id="showCompletedBtn" type="button" title="Toggle visibility of completed tasks on the board"
+          class="whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold ring-1 transition"></button>
+        <button id="navPrevBtn" type="button" aria-label="Previous days"
+          class="grid h-9 w-9 place-items-center rounded-xl bg-paper-50 text-ink-500 shadow-card ring-1 ring-ink-900/10 transition hover:bg-paper-200 disabled:cursor-not-allowed disabled:opacity-40">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button id="navNextBtn" type="button" aria-label="Next days"
+          class="grid h-9 w-9 place-items-center rounded-xl bg-paper-50 text-ink-500 shadow-card ring-1 ring-ink-900/10 transition hover:bg-paper-200">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Day columns -->
+    <div id="columns" class="grid grid-cols-1 gap-4 md:grid-cols-3"></div>
+
+    <!-- Incomplete tray -->
+    <section class="mt-5 rounded-2xl border border-ochre-200 bg-ochre-50/70 p-4">
+      <div class="mb-3 flex items-center gap-2">
+        <span class="grid h-6 w-6 place-items-center rounded-lg bg-ochre-200/60 text-ochre-700">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 8v5M12 16.5v.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+            <path d="M10.3 3.9 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+          </svg>
+        </span>
+        <h3 class="font-serif text-sm font-semibold tracking-tight text-ochre-700">Incomplete</h3>
+        <span id="trayCount" class="rounded-full bg-ochre-200/60 px-2 py-0.5 text-xs font-bold text-ochre-700"></span>
+        <span class="ml-1 text-xs text-ochre-600/70">unfinished tasks from previous days — drag onto a day to reschedule</span>
+      </div>
+      <div id="trayList" data-dropzone="tray" class="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl p-1 transition"></div>
+      <p id="trayEmpty" class="hidden px-1 text-sm text-ochre-600/60">Nothing overdue. Great job staying on top of things.</p>
+    </section>
+  </main>
+
+  <!-- ===================== History view ===================== -->
+  <main id="historyView" class="mx-auto hidden max-w-7xl px-4 py-6 sm:px-6">
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-[420px_1fr]">
+
+      <!-- Calendar -->
+      <section class="rounded-2xl bg-paper-50 p-5 shadow-card ring-1 ring-ink-900/10">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 id="calMonthLabel" class="font-serif text-lg font-semibold tracking-tight text-ink-900"></h2>
+          <div class="flex items-center gap-1.5">
+            <button id="calPrevBtn" type="button" aria-label="Previous month"
+              class="grid h-8 w-8 place-items-center rounded-lg bg-paper-200 text-ink-500 ring-1 ring-ink-900/10 transition hover:bg-paper-300">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+            <button id="calNextBtn" type="button" aria-label="Next month"
+              class="grid h-8 w-8 place-items-center rounded-lg bg-paper-200 text-ink-500 ring-1 ring-ink-900/10 transition hover:bg-paper-300 disabled:cursor-not-allowed disabled:opacity-40">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-7 gap-1 text-center text-[11px] font-bold uppercase tracking-wide text-ink-300">
+          <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+        </div>
+        <div id="calGrid" class="mt-1 grid grid-cols-7 gap-1"></div>
+
+        <div class="mt-4 space-y-1 text-xs text-ink-400">
+          <p class="flex items-center gap-2">
+            <span class="inline-block h-2 w-2 rounded-full bg-moss-500"></span> power day — 5 power tasks completed
+          </p>
+          <p class="flex items-center gap-2">
+            <span class="inline-block h-2 w-2 rounded-full bg-denim-500"></span> days with completed tasks · history is read-only
+          </p>
+        </div>
+      </section>
+
+      <!-- Selected day details -->
+      <section class="rounded-2xl bg-paper-50 p-5 shadow-card ring-1 ring-ink-900/10">
+        <div class="flex items-center gap-2">
+          <h2 id="historyDayLabel" class="font-serif text-lg font-semibold tracking-tight text-ink-900"></h2>
+          <span id="historyPowerBadge" class="hidden items-center gap-1 rounded-full bg-moss-100 px-2.5 py-0.5 text-xs font-bold text-moss-700 ring-1 ring-moss-200">
+            ⚡ Power day
+          </span>
+        </div>
+        <p id="historyDaySummary" class="mt-0.5 text-sm text-ink-400"></p>
+        <ul id="historyDayList" class="mt-4 space-y-2"></ul>
+        <div id="historyDayEmpty" class="mt-4 hidden rounded-xl border border-dashed border-ink-900/15 p-6 text-center text-sm text-ink-300">
+          No completed tasks on this day.
+        </div>
+
+        <!-- Forgot to tick something off? Backfill it here. -->
+        <div id="historyIncompleteSection" class="mt-6 hidden rounded-xl border border-ochre-200 bg-ochre-50/70 p-4">
+          <h3 class="font-serif text-sm font-semibold text-ochre-700">Still incomplete from this day</h3>
+          <p class="mt-0.5 text-xs text-ochre-600/80">Tick a task to record it as completed on this day.</p>
+          <ul id="historyIncompleteList" class="mt-3 space-y-2"></ul>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ===================== Dashboard view ===================== -->
+  <main id="dashboardView" class="mx-auto hidden max-w-7xl px-4 py-6 sm:px-6">
+    <section class="mx-auto max-w-3xl rounded-2xl bg-paper-50 p-6 shadow-card ring-1 ring-ink-900/10">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="font-serif text-lg font-semibold tracking-tight text-ink-900">Time by tag</h2>
+          <p class="mt-0.5 text-sm text-ink-400">Calculated from the time period picked on each task (⏱).</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1 rounded-xl bg-paper-300/50 p-1">
+            <button id="dashScopeCompleted" type="button" data-scope="completed"
+              class="dashScopeBtn rounded-lg px-3 py-1.5 text-xs font-semibold transition">Completed</button>
+            <button id="dashScopeAll" type="button" data-scope="all"
+              class="dashScopeBtn rounded-lg px-3 py-1.5 text-xs font-semibold transition">All tasks</button>
+          </div>
+          <button id="dashPowerOnlyBtn" type="button" title="Show statistics for power tasks only"
+            class="whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold ring-1 transition">⚡ Power only</button>
+        </div>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Tracked time</p>
+          <p id="dashTotal" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
+          <p id="dashMeta" class="mt-0.5 text-xs text-ink-400"></p>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Avg completed per day</p>
+          <p id="dashAvg" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
+          <p id="dashAvgMeta" class="mt-0.5 text-xs text-ink-400"></p>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Tasks created</p>
+          <p id="dashCreated" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
+          <p id="dashCreatedMeta" class="mt-0.5 text-xs text-ink-400"></p>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300" title="Logged time vs 8 productive hours per day">Efficiency</p>
+          <p id="dashEff" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
+          <p id="dashEffMeta" class="mt-0.5 text-xs text-ink-400"></p>
+          <div class="mt-2 h-2 overflow-hidden rounded-full bg-paper-300/60">
+            <div id="dashEffBar" class="h-full rounded-full bg-moss-500 transition-[width] duration-200" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <ul id="dashRows" class="mt-6 space-y-4"></ul>
+
+      <div id="dashEmpty" class="mt-6 hidden rounded-xl border border-dashed border-ink-900/15 p-8 text-center text-sm text-ink-300">
+        Nothing to show yet — pick a time period on a task card (⏱) to start tracking time.
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== Focus timer popup ===================== -->
+  <div id="timerPopup" class="fixed bottom-5 right-5 z-[70] hidden w-80 rounded-2xl bg-ink-900 p-5 text-paper-50 shadow-lift">
+    <div class="flex items-start justify-between gap-3">
+      <p class="text-[10px] font-bold uppercase tracking-widest text-paper-400">Focus timer</p>
+      <button id="timerCloseBtn" type="button" aria-label="Stop timer"
+        class="grid h-7 w-7 place-items-center rounded-lg text-paper-300 transition hover:bg-paper-50/10 hover:text-paper-50">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
+    <p id="timerTaskTitle" class="mt-1 break-words text-sm font-semibold"></p>
+    <div class="mt-2 flex items-baseline gap-2">
+      <p id="timerDisplay" class="font-serif text-5xl font-semibold tabular-nums"></p>
+      <p id="timerStatus" class="text-xs text-paper-300"></p>
+    </div>
+    <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-paper-50/15">
+      <div id="timerBar" class="h-full rounded-full bg-moss-500 transition-[width] duration-200"></div>
+    </div>
+    <button id="timerDoneBtn" type="button"
+      class="mt-4 w-full rounded-xl bg-moss-600 py-2 text-sm font-bold text-paper-50 transition hover:bg-moss-500 active:scale-[0.99]">
+      ✓ Mark task done
+    </button>
+  </div>
+
+  <!-- ===================== Task modal ===================== -->
+  <div id="taskModal" class="fixed inset-0 z-50 hidden items-center justify-center px-4" role="dialog" aria-modal="true">
+    <div id="taskModalBackdrop" class="absolute inset-0 bg-ink-900/40 backdrop-blur-sm"></div>
+
+    <div class="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-paper-50 p-6 shadow-lift nice-scroll">
+      <div class="flex items-start justify-between gap-3">
+        <h3 id="taskModalTitle" class="font-serif text-lg font-semibold tracking-tight text-ink-900">New task</h3>
+        <button id="taskModalCloseBtn" type="button" aria-label="Close"
+          class="grid h-8 w-8 place-items-center rounded-lg text-ink-300 transition hover:bg-paper-200 hover:text-ink-500">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      <form id="taskForm" class="mt-4 space-y-4">
+        <div>
+          <label for="taskTitleInput" class="mb-1.5 block text-xs font-semibold text-ink-500">Task</label>
+          <input id="taskTitleInput" type="text" autocomplete="off" spellcheck="false" placeholder="What needs to get done?"
+            class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="taskDateInput" class="mb-1.5 block text-xs font-semibold text-ink-500">Day</label>
+            <input id="taskDateInput" type="date"
+              class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+          <div>
+            <label for="taskTimeInput" class="mb-1.5 block text-xs font-semibold text-ink-500">Time <span class="font-normal text-ink-300">(optional)</span></label>
+            <input id="taskTimeInput" type="text" inputmode="numeric" autocomplete="off" spellcheck="false"
+              placeholder="e.g. 1430 or 14:30"
+              class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+        </div>
+
+        <!-- Power toggle -->
+        <label for="taskPowerInput"
+          class="flex cursor-pointer items-center gap-3 rounded-xl bg-ochre-50 px-3.5 py-2.5 ring-1 ring-ochre-200 transition hover:bg-ochre-100">
+          <input id="taskPowerInput" type="checkbox"
+            class="h-[18px] w-[18px] shrink-0 cursor-pointer rounded-md border-ochre-400 text-ochre-600 focus:ring-ochre-400" />
+          <span class="shrink-0 whitespace-nowrap text-sm font-semibold text-ochre-700">⚡ Power task</span>
+          <span class="min-w-0 text-xs leading-snug text-ochre-600/80">counts toward the mandatory 5 of the day</span>
+        </label>
+
+        <div>
+          <label class="mb-1.5 block text-xs font-semibold text-ink-500">Tags</label>
+          <div id="tagLibraryChips" class="mb-2 flex flex-wrap gap-1.5"></div>
+          <input id="taskTagsInput" type="text" autocomplete="off" spellcheck="false" placeholder="New tag (comma separated)"
+            class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <p class="mt-1.5 text-[11px] text-ink-300">Click a chip to add or remove it from this task. The small × deletes a tag everywhere.</p>
+        </div>
+
+        <div class="flex items-center justify-between pt-1">
+          <button id="taskDeleteBtn" type="button"
+            class="hidden rounded-xl px-3 py-2 text-sm font-semibold text-clay-600 transition hover:bg-clay-50">
+            Delete
+          </button>
+          <div class="ml-auto flex items-center gap-2">
+            <button id="taskCancelBtn" type="button"
+              class="rounded-xl px-3.5 py-2 text-sm font-semibold text-ink-400 transition hover:bg-paper-200">
+              Cancel
+            </button>
+            <button type="submit"
+              class="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-paper-50 shadow-card transition hover:bg-brand-600 active:scale-[0.98]">
+              Save
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+
+    /* =====================================================================
+     * Power List — Trello-style daily board, vintage-paper edition.
+     * Tasks live on a date and are sequenced by their time stamp. Five
+     * "power tasks" are the daily must-dos: complete them and the day's
+     * frame turns green (and the day is marked green in History).
+     * ===================================================================== */
+
+    const STORAGE_KEY = "powerlist_tasks_v2";
+    const TAGS_KEY = "powerlist_tags_v1";
+    const LEGACY_STORAGE_KEY = "premium_todo_tasks_v1";
+    const VISIBLE_DAYS = 3;
+    const TRAY_LABEL_CHARS = 15;
+    const POWER_GOAL = 5;
+    const POWER_FILTER = "__POWER__";
+    const TIMER_DURATIONS = [5, 10, 15, 30, 60]; // minutes
+    const PRODUCTIVE_MINUTES_PER_DAY = 8 * 60;   // measurable productive hours per day
+
+    /**
+     * @typedef {{
+     *   id: string, title: string, date: string, time: string,
+     *   tags: string[], isPower: boolean, duration: number,
+     *   spent: number, completed: boolean, completedAt: number|null,
+     *   createdAt: number, order: number
+     * }} Task
+     */
+
+    /** @type {Task[]} */
+    let tasks = [];
+
+    /** @type {string[]} Persistent library of every tag ever used. */
+    let tagLibrary = [];
+
+    const ui = {
+      view: "board",            // "board" | "history" | "dashboard"
+      dayOffset: 0,             // 0 = window starts at today (never negative)
+      showCompleted: false,     // board shows only incomplete tasks by default
+      filterTag: null,          // active tag, POWER_FILTER, or null
+      calYear: 0,
+      calMonth: 0,              // 0-based
+      selectedHistoryDate: "",  // ISO date selected in history
+      editingTaskId: null,      // task being edited in modal, or null
+      modalSelectedTags: new Set(),
+      dashScope: "completed",   // "completed" | "all"
+      dashPowerOnly: false,     // dashboard: statistics for power tasks only
+    };
+
+    // ---------- Date helpers ----------
+    function toISO(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+    function todayISO() { return toISO(new Date()); }
+    function addDaysISO(iso, n) {
+      const [y, m, d] = iso.split("-").map(Number);
+      return toISO(new Date(y, m - 1, d + n));
+    }
+    function isoToDate(iso) {
+      const [y, m, d] = iso.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    }
+    function dayLabel(iso) {
+      const t = todayISO();
+      if (iso === t) return "Today";
+      if (iso === addDaysISO(t, 1)) return "Tomorrow";
+      if (iso === addDaysISO(t, 2)) return "After tomorrow";
+      return isoToDate(iso).toLocaleDateString(undefined, { weekday: "long" });
+    }
+    function weekdayShort(iso) {
+      return isoToDate(iso).toLocaleDateString(undefined, { weekday: "short" });
+    }
+    function isWeekend(iso) {
+      const wd = isoToDate(iso).getDay();
+      return wd === 0 || wd === 6;
+    }
+    function shortDate(iso) {
+      return isoToDate(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
+    function fullDate(iso) {
+      return isoToDate(iso).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    }
+
+    function uid() {
+      return (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `id_${Math.random().toString(16).slice(2)}_${Date.now()}`;
+    }
+
+    function escapeHTML(str) {
+      return String(str)
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+    }
+
+    function capitalizeFirst(s) {
+      return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    }
+
+    // ---------- Persistence ----------
+    /**
+     * Data-safety rules:
+     * 1. Storage keys are stable; schema changes only ADD optional fields,
+     *    and normalizeTasks() fills defaults for anything missing, so old
+     *    data always loads after an app update.
+     * 2. Every save also writes a rolling daily backup (last 7 days kept).
+     * 3. If the main key is ever missing or unreadable, the newest backup is
+     *    restored automatically; unreadable data is stashed, never discarded.
+     */
+    const BACKUP_PREFIX = "powerlist_backup_";
+    const BACKUP_KEEP = 7;
+
+    function normalizeTasks(parsed) {
+      return parsed.filter((t) => t && typeof t === "object" && t.title).map((t, i) => ({
+        id: String(t.id ?? uid()),
+        title: String(t.title).trim(),
+        date: /^\d{4}-\d{2}-\d{2}$/.test(t.date) ? t.date : todayISO(),
+        time: typeof t.time === "string" ? t.time : "",
+        tags: Array.isArray(t.tags) ? t.tags.map((x) => capitalizeFirst(String(x))) : [],
+        isPower: Boolean(t.isPower),
+        duration: Number.isFinite(Number(t.duration)) ? Number(t.duration) : 0,
+        spent: Number.isFinite(Number(t.spent)) ? Number(t.spent) : 0,
+        completed: Boolean(t.completed),
+        completedAt: t.completedAt ? Number(t.completedAt) : null,
+        createdAt: Number(t.createdAt ?? Date.now()),
+        order: Number.isFinite(t.order) ? Number(t.order) : i,
+      }));
+    }
+
+    function writeBackup() {
+      try {
+        localStorage.setItem(
+          BACKUP_PREFIX + todayISO(),
+          JSON.stringify({ tasks, tags: tagLibrary, savedAt: Date.now() })
+        );
+        const keys = Object.keys(localStorage).filter((k) => k.startsWith(BACKUP_PREFIX)).sort();
+        while (keys.length > BACKUP_KEEP) localStorage.removeItem(keys.shift());
+      } catch { /* storage full — backups are best-effort */ }
+    }
+
+    function newestBackup() {
+      const keys = Object.keys(localStorage).filter((k) => k.startsWith(BACKUP_PREFIX)).sort();
+      for (let i = keys.length - 1; i >= 0; i--) {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(keys[i]));
+          if (parsed && Array.isArray(parsed.tasks) && parsed.tasks.length) return parsed;
+        } catch { /* try the next backup */ }
+      }
+      return null;
+    }
+
+    function saveTasks() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+      writeBackup();
+    }
+
+    function loadTasks() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return normalizeTasks(parsed);
+        } catch {
+          // Never throw data away: stash the unreadable payload for manual
+          // recovery, then fall through to the automatic backups.
+          try { localStorage.setItem("powerlist_corrupt_" + Date.now(), raw); } catch { /* full */ }
+        }
+      }
+
+      // Main key missing or unreadable — restore the newest healthy backup.
+      const backup = newestBackup();
+      if (backup) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(backup.tasks));
+          if (Array.isArray(backup.tags) && backup.tags.length && !localStorage.getItem(TAGS_KEY)) {
+            localStorage.setItem(TAGS_KEY, JSON.stringify(backup.tags));
+          }
+        } catch { /* read-only storage — still return the data */ }
+        return normalizeTasks(backup.tasks);
+      }
+
+      // One-time import from the previous version of the app.
+      try {
+        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          if (Array.isArray(parsed)) {
+            return parsed
+              .filter((t) => t && typeof t === "object" && String(t.text ?? "").trim())
+              .map((t, i) => ({
+                id: String(t.id ?? uid()),
+                title: String(t.text).trim(),
+                date: todayISO(),
+                time: "",
+                tags: [],
+                isPower: false,
+                duration: 0,
+                spent: 0,
+                completed: Boolean(t.completed),
+                completedAt: t.completed ? Number(t.createdAt ?? Date.now()) : null,
+                createdAt: Number(t.createdAt ?? Date.now()),
+                order: i,
+              }));
+          }
+        }
+      } catch { /* corrupted legacy data — nothing to import */ }
+      return [];
+    }
+
+    function saveTagLibrary() {
+      localStorage.setItem(TAGS_KEY, JSON.stringify(tagLibrary));
+      writeBackup();
+    }
+
+    function loadTagLibrary() {
+      let stored = [];
+      try {
+        const raw = localStorage.getItem(TAGS_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) stored = parsed.map((x) => capitalizeFirst(String(x))).filter(Boolean);
+      } catch { /* start fresh */ }
+      // Merge in any tags already attached to tasks.
+      const set = new Set(stored);
+      for (const t of tasks) for (const tag of t.tags) set.add(tag);
+      return [...set].sort((a, b) => a.localeCompare(b));
+    }
+
+    function addTagsToLibrary(newTags) {
+      const set = new Set(tagLibrary);
+      for (const tag of newTags) set.add(tag);
+      tagLibrary = [...set].sort((a, b) => a.localeCompare(b));
+      saveTagLibrary();
+    }
+
+    function deleteTagEverywhere(tag) {
+      tagLibrary = tagLibrary.filter((t) => t !== tag);
+      for (const task of tasks) {
+        task.tags = task.tags.filter((t) => t !== tag);
+      }
+      ui.modalSelectedTags.delete(tag);
+      if (ui.filterTag === tag) ui.filterTag = null;
+      saveTagLibrary();
+      saveTasks();
+    }
+
+    // ---------- Tag colors ----------
+    const TAG_PALETTE = [
+      "bg-denim-100 text-denim-700 ring-denim-500/30",
+      "bg-moss-100 text-moss-700 ring-moss-500/30",
+      "bg-brand-100 text-brand-700 ring-brand-500/30",
+      "bg-ochre-100 text-ochre-700 ring-ochre-400/40",
+      "bg-paper-300 text-ink-700 ring-ink-500/20",
+      "bg-moss-50 text-moss-600 ring-moss-500/25",
+      "bg-brand-50 text-brand-600 ring-brand-500/25",
+      "bg-ochre-50 text-ochre-600 ring-ochre-400/30",
+    ];
+    function tagClasses(tag) {
+      let h = 0;
+      for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+      return TAG_PALETTE[h % TAG_PALETTE.length];
+    }
+    function tagChipHTML(tag, extra = "") {
+      return `<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${tagClasses(tag)} ${extra}">${escapeHTML(tag)}</span>`;
+    }
+
+    // ---------- Derived data ----------
+    function matchesFilter(task) {
+      if (!ui.filterTag) return true;
+      if (ui.filterTag === POWER_FILTER) return task.isPower;
+      return task.tags.includes(ui.filterTag);
+    }
+    function tasksForDay(iso) {
+      const list = tasks.filter(
+        (t) => t.date === iso && matchesFilter(t) && (ui.showCompleted || !t.completed)
+      );
+      // Sequence is driven by the time stamp: timed tasks first in
+      // chronological order, untimed tasks after in manual (drag) order.
+      const timed = list.filter((t) => t.time)
+        .sort((a, b) => a.time.localeCompare(b.time) || a.order - b.order);
+      const untimed = list.filter((t) => !t.time)
+        .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+      return [...timed, ...untimed];
+    }
+    function incompleteTrayTasks() {
+      const t = todayISO();
+      return tasks
+        .filter((x) => !x.completed && x.date < t && matchesFilter(x))
+        .sort((a, b) => a.date.localeCompare(b.date) || a.order - b.order);
+    }
+    function completedOn(iso) {
+      return tasks
+        .filter((t) => t.completed && t.completedAt && toISO(new Date(t.completedAt)) === iso)
+        .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
+    }
+    function powerCompletedCount(iso) {
+      return completedOn(iso).filter((t) => t.isPower).length;
+    }
+    function isPowerDay(iso) {
+      return powerCompletedCount(iso) >= POWER_GOAL;
+    }
+
+    // ---------- Elements ----------
+    const el = (id) => document.getElementById(id);
+    const columnsEl = el("columns");
+    const trayListEl = el("trayList");
+    const trayCountEl = el("trayCount");
+    const trayEmptyEl = el("trayEmpty");
+    const windowLabelEl = el("windowLabel");
+    const tagFilterBarEl = el("tagFilterBar");
+    const tagFilterChipsEl = el("tagFilterChips");
+
+    // ---------- Render: board ----------
+    function renderBoard() {
+      const start = addDaysISO(todayISO(), ui.dayOffset);
+      const end = addDaysISO(start, VISIBLE_DAYS - 1);
+      windowLabelEl.textContent = ui.dayOffset === 0
+        ? `${shortDate(start)} – ${shortDate(end)}`
+        : `${shortDate(start)} – ${shortDate(end)} (+${ui.dayOffset}d)`;
+
+      el("navPrevBtn").disabled = ui.dayOffset === 0;
+      el("backToTodayBtn").classList.toggle("hidden", ui.dayOffset === 0);
+
+      const showDoneBtn = el("showCompletedBtn");
+      showDoneBtn.textContent = ui.showCompleted ? "Hide completed" : "Show completed";
+      showDoneBtn.className =
+        "whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold ring-1 transition " +
+        (ui.showCompleted
+          ? "bg-moss-100 text-moss-700 ring-moss-500/40 hover:bg-moss-200"
+          : "bg-paper-50 text-ink-400 ring-ink-900/10 shadow-card hover:bg-paper-200");
+
+      columnsEl.innerHTML = "";
+      for (let i = 0; i < VISIBLE_DAYS; i++) {
+        const iso = addDaysISO(start, i);
+        columnsEl.appendChild(buildColumn(iso));
+      }
+
+      renderTray();
+    }
+
+    function buildColumn(iso) {
+      const t = todayISO();
+      const isToday = iso === t;
+      const isFuture = iso > t;
+      const dayTasks = tasksForDay(iso);
+      const remaining = dayTasks.filter((x) => !x.completed).length;
+
+      // Power progress: for today/past count actual completions; for future
+      // days show how many power tasks are planned.
+      const powerPlanned = dayTasks.filter((x) => x.isPower).length;
+      const powerDone = isFuture ? 0 : powerCompletedCount(iso);
+      const powerAchieved = !isFuture && isPowerDay(iso);
+
+      const col = document.createElement("section");
+      let frame;
+      if (powerAchieved) {
+        // Power day: greenish frame wins over everything.
+        frame = "bg-moss-50 ring-2 ring-moss-500 shadow-card";
+      } else if (isWeekend(iso)) {
+        // Weekend: yellowish border by default.
+        frame = "bg-ochre-50/80 ring-2 ring-ochre-400 shadow-card";
+      } else if (isToday) {
+        frame = "bg-paper-50 ring-1 ring-brand-500/40 shadow-card";
+      } else {
+        frame = "bg-paper-200/70 ring-1 ring-ink-900/10";
+      }
+      col.className = "flex min-h-[320px] flex-col rounded-2xl p-3 transition " + frame;
+
+      const labelColor = powerAchieved ? "text-moss-700" : isToday ? "text-brand-600" : "text-ink-500";
+      const powerChipStyle = powerAchieved
+        ? "bg-moss-500 text-paper-50"
+        : "bg-ochre-100 text-ochre-700";
+
+      col.innerHTML = `
+        <header class="mb-3 flex items-center gap-2 px-1">
+          <span class="whitespace-nowrap text-[11px] font-extrabold uppercase tracking-widest ${labelColor}">${escapeHTML(dayLabel(iso))}</span>
+          <span class="whitespace-nowrap text-xs font-semibold text-ink-400">${weekdayShort(iso)} · ${shortDate(iso)}</span>
+          <span class="rounded-full bg-paper-300/70 px-2 py-0.5 text-[11px] font-bold text-ink-500">${remaining}</span>
+          <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${powerChipStyle}" title="Power tasks: ${POWER_GOAL} are mandatory each day">
+            ⚡ ${isFuture ? `${powerPlanned}/${POWER_GOAL}` : `${powerDone}/${POWER_GOAL}`}
+          </span>
+          <button type="button" data-add-for="${iso}" aria-label="Add task for ${escapeHTML(dayLabel(iso))}"
+            class="ml-auto grid h-7 w-7 place-items-center rounded-lg text-ink-300 transition hover:bg-paper-300/60 hover:text-ink-500">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+            </svg>
+          </button>
+        </header>
+        <div class="taskList flex flex-1 flex-col gap-2 rounded-xl p-0.5 transition" data-dropzone="day" data-date="${iso}"></div>
+      `;
+
+      const listEl = col.querySelector(".taskList");
+      for (const task of dayTasks) listEl.appendChild(buildCard(task));
+
+      if (dayTasks.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "pointer-events-none px-2 py-6 text-center text-xs text-ink-300";
+        empty.textContent = "No tasks — drop one here or click +";
+        listEl.appendChild(empty);
+      }
+
+      col.querySelector("[data-add-for]").addEventListener("click", () => openTaskModal(null, iso));
+      attachDropzone(listEl);
+      return col;
+    }
+
+    function buildCard(task) {
+      const card = document.createElement("article");
+      card.dataset.taskId = task.id;
+      card.draggable = !task.completed;
+      card.className =
+        "card-in group cursor-pointer rounded-xl bg-paper-50 p-3 shadow-card ring-1 transition hover:ring-brand-500/50 " +
+        (task.isPower ? "ring-ochre-400/60 " : "ring-ink-900/10 ") +
+        (task.completed ? "opacity-60" : "cursor-grab active:cursor-grabbing");
+
+      const timePrefix = task.time
+        ? `<span class="mr-1.5 font-semibold tabular-nums ${task.completed ? "text-ink-300" : "text-ink-400"}">${escapeHTML(task.time)}</span>`
+        : "";
+
+      // Tags and the timer controls share one meta row to keep cards compact.
+      const metaBits = task.tags.map((tag) => tagChipHTML(tag));
+      if (!task.completed) {
+        metaBits.push(`
+          <select class="durationSelect cursor-pointer rounded-full border-0 bg-paper-200/70 py-0.5 pl-2 pr-6 text-[11px] font-semibold text-ink-500 ring-1 ring-ink-900/10 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            aria-label="Time period for this task">
+            <option value="0">⏱ no est.</option>
+            ${TIMER_DURATIONS.map((m) => `<option value="${m}" ${task.duration === m ? "selected" : ""}>⏱ ${m} min</option>`).join("")}
+          </select>
+          <button type="button" title="Start countdown timer"
+            class="startTimerBtn ${task.duration ? "" : "hidden"} inline-flex items-center gap-1 rounded-full bg-moss-100 px-2.5 py-0.5 text-[11px] font-bold text-moss-700 ring-1 ring-moss-500/30 transition hover:bg-moss-200">
+            ▶ Start
+          </button>`);
+      }
+
+      card.innerHTML = `
+        <div class="flex items-start gap-2.5">
+          <input type="checkbox" ${task.completed ? "checked" : ""} aria-label="Mark task complete"
+            class="taskCheck mt-0.5 h-[18px] w-[18px] shrink-0 cursor-pointer rounded-md border-ink-300 text-moss-600 focus:ring-moss-500" />
+          <div class="min-w-0 flex-1">
+            <p class="break-words text-sm font-medium leading-snug ${task.completed ? "text-ink-300 line-through" : "text-ink-700"}">${timePrefix}${escapeHTML(task.title)}</p>
+            ${metaBits.length ? `<div class="mt-1.5 flex flex-wrap items-center gap-1.5">${metaBits.join("")}</div>` : ""}
+          </div>
+          <button type="button" title="${task.isPower ? "Power task — click to unmark" : "Mark as power task"}"
+            aria-label="Toggle power task"
+            class="powerToggle mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg text-sm transition ${
+              task.isPower
+                ? "bg-ochre-100 text-ochre-600 ring-1 ring-ochre-400/50"
+                : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ochre-600"
+            }">⚡</button>
+        </div>
+      `;
+
+      card.querySelector(".taskCheck").addEventListener("click", (e) => e.stopPropagation());
+      card.querySelector(".taskCheck").addEventListener("change", (e) => {
+        task.completed = e.target.checked;
+        task.completedAt = e.target.checked ? Date.now() : null;
+        saveTasks();
+        render();
+      });
+      card.querySelector(".powerToggle").addEventListener("click", (e) => {
+        e.stopPropagation();
+        task.isPower = !task.isPower;
+        saveTasks();
+        render();
+      });
+      const durationSelect = card.querySelector(".durationSelect");
+      if (durationSelect) {
+        durationSelect.addEventListener("click", (e) => e.stopPropagation());
+        durationSelect.addEventListener("change", (e) => {
+          e.stopPropagation();
+          task.duration = Number(durationSelect.value) || 0;
+          saveTasks();
+          render();
+        });
+        card.querySelector(".startTimerBtn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          startTaskTimer(task);
+        });
+      }
+      card.addEventListener("click", () => openTaskModal(task.id));
+      attachDragHandlers(card, task);
+      return card;
+    }
+
+    // ---------- Render: incomplete tray ----------
+    function renderTray() {
+      const overdue = incompleteTrayTasks();
+      trayListEl.innerHTML = "";
+      trayCountEl.textContent = String(overdue.length);
+      trayEmptyEl.classList.toggle("hidden", overdue.length > 0);
+
+      for (const task of overdue) {
+        const label = task.title.length > TRAY_LABEL_CHARS
+          ? task.title.slice(0, TRAY_LABEL_CHARS) + "…"
+          : task.title;
+
+        const pill = document.createElement("div");
+        pill.dataset.taskId = task.id;
+        pill.draggable = true;
+        pill.title = `${task.title} — from ${shortDate(task.date)}`;
+        pill.className =
+          "card-in group inline-flex cursor-grab items-center gap-2 rounded-full bg-paper-50 py-1.5 pl-2 pr-3 " +
+          "text-sm font-medium text-ink-700 shadow-card ring-1 ring-ochre-200 transition hover:ring-ochre-400 active:cursor-grabbing";
+
+        pill.innerHTML = `
+          <input type="checkbox" aria-label="Mark task complete"
+            class="trayCheck h-4 w-4 cursor-pointer rounded-full border-ochre-400 text-moss-600 focus:ring-moss-500" />
+          ${task.isPower ? '<span class="text-xs" title="Power task">⚡</span>' : ""}
+          <span>${escapeHTML(label)}</span>
+          <span class="text-[10px] font-bold uppercase text-ochre-600">${shortDate(task.date)}</span>
+        `;
+
+        pill.querySelector(".trayCheck").addEventListener("click", (e) => e.stopPropagation());
+        pill.querySelector(".trayCheck").addEventListener("change", () => {
+          // Completing an overdue task counts for today in history.
+          task.completed = true;
+          task.completedAt = Date.now();
+          saveTasks();
+          render();
+        });
+        pill.addEventListener("click", () => openTaskModal(task.id));
+        attachDragHandlers(pill, task);
+        trayListEl.appendChild(pill);
+      }
+
+      attachDropzone(trayListEl);
+    }
+
+    // ---------- Render: tag filter ----------
+    function renderTagFilter() {
+      const tags = tagLibrary;
+      // The filter only applies to the board/history, not the dashboard.
+      const visible = ui.view !== "dashboard" && (tags.length > 0 || tasks.some((t) => t.isPower));
+      tagFilterBarEl.classList.toggle("hidden", !visible);
+      tagFilterBarEl.classList.toggle("flex", visible);
+      tagFilterChipsEl.innerHTML = "";
+
+      const mkChip = (label, value) => {
+        const active = ui.filterTag === value;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className =
+          "shrink-0 rounded-full px-3 py-1 text-xs font-semibold ring-1 transition " +
+          (active
+            ? "bg-brand-500 text-paper-50 ring-brand-500"
+            : value === null
+              ? "bg-paper-50 text-ink-400 ring-ink-900/10 hover:bg-paper-200"
+              : value === POWER_FILTER
+                ? "bg-ochre-100 text-ochre-700 ring-ochre-400/50 hover:bg-ochre-200"
+                : `${tagClasses(value)} hover:brightness-95`);
+        btn.textContent = label;
+        btn.addEventListener("click", () => {
+          ui.filterTag = active ? null : value;
+          render();
+        });
+        return btn;
+      };
+
+      tagFilterChipsEl.appendChild(mkChip("All", null));
+      tagFilterChipsEl.appendChild(mkChip("⚡ Power", POWER_FILTER));
+      for (const tag of tags) tagFilterChipsEl.appendChild(mkChip(tag, tag));
+    }
+
+    // ---------- Drag & drop ----------
+    let draggedTaskId = null;
+    let dropIndicator = null;
+
+    function getDropIndicator() {
+      if (!dropIndicator) {
+        dropIndicator = document.createElement("div");
+        dropIndicator.className = "drop-indicator";
+      }
+      return dropIndicator;
+    }
+    function removeDropIndicator() {
+      if (dropIndicator && dropIndicator.parentNode) dropIndicator.remove();
+    }
+
+    function attachDragHandlers(node, task) {
+      node.addEventListener("dragstart", (e) => {
+        draggedTaskId = task.id;
+        node.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", task.id);
+      });
+      node.addEventListener("dragend", () => {
+        draggedTaskId = null;
+        node.classList.remove("dragging");
+        removeDropIndicator();
+        document.querySelectorAll(".dropzone-active").forEach((z) => z.classList.remove("dropzone-active"));
+      });
+    }
+
+    function cardAfterPosition(container, y) {
+      const cards = [...container.querySelectorAll("[data-task-id]:not(.dragging)")];
+      let closest = { offset: -Infinity, element: null };
+      for (const card of cards) {
+        const box = card.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) closest = { offset, element: card };
+      }
+      return closest.element;
+    }
+
+    function attachDropzone(zone) {
+      zone.addEventListener("dragover", (e) => {
+        if (!draggedTaskId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        zone.classList.add("dropzone-active");
+
+        if (zone.dataset.dropzone === "day") {
+          const after = cardAfterPosition(zone, e.clientY);
+          const ind = getDropIndicator();
+          if (after) zone.insertBefore(ind, after);
+          else zone.appendChild(ind);
+        }
+      });
+
+      zone.addEventListener("dragleave", (e) => {
+        if (!zone.contains(e.relatedTarget)) {
+          zone.classList.remove("dropzone-active");
+          if (dropIndicator && dropIndicator.parentNode === zone) removeDropIndicator();
+        }
+      });
+
+      zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        zone.classList.remove("dropzone-active");
+        const id = draggedTaskId || e.dataTransfer.getData("text/plain");
+        const task = tasks.find((t) => t.id === id);
+        removeDropIndicator();
+        if (!task) return;
+
+        if (zone.dataset.dropzone === "tray") {
+          // Park the task as "incomplete" by dating it yesterday.
+          task.date = addDaysISO(todayISO(), -1);
+          task.completed = false;
+          task.completedAt = null;
+        } else {
+          const targetDate = zone.dataset.date;
+          const after = cardAfterPosition(zone, e.clientY);
+          task.date = targetDate;
+
+          // Rebuild manual order for the target day with the task inserted at
+          // the drop point. (Timed tasks still sort by their time stamp.)
+          const dayList = tasksForDay(targetDate).filter((t) => t.id !== task.id);
+          const insertAt = after
+            ? dayList.findIndex((t) => t.id === after.dataset.taskId)
+            : dayList.length;
+          dayList.splice(insertAt === -1 ? dayList.length : insertAt, 0, task);
+          dayList.forEach((t, i) => { t.order = i; });
+        }
+
+        saveTasks();
+        render();
+      });
+    }
+
+    // ---------- Focus timer ----------
+    const taskTimer = { taskId: null, endsAt: 0, totalMs: 0, intervalId: null };
+
+    function fmtCountdown(ms) {
+      const s = Math.max(0, Math.ceil(ms / 1000));
+      return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    }
+
+    function startTaskTimer(task) {
+      stopTaskTimer();
+      taskTimer.taskId = task.id;
+      taskTimer.totalMs = task.duration * 60_000;
+      taskTimer.endsAt = Date.now() + taskTimer.totalMs;
+      el("timerTaskTitle").textContent = task.title;
+      el("timerPopup").classList.remove("hidden");
+      tickTaskTimer();
+      taskTimer.intervalId = setInterval(tickTaskTimer, 250);
+    }
+
+    function tickTaskTimer() {
+      const remaining = taskTimer.endsAt - Date.now();
+      const up = remaining <= 0;
+      el("timerDisplay").textContent = fmtCountdown(remaining);
+      el("timerStatus").textContent = up ? "time's up!" : "left";
+      el("timerBar").style.width =
+        (taskTimer.totalMs ? Math.max(0, (remaining / taskTimer.totalMs) * 100) : 0) + "%";
+      el("timerDisplay").classList.toggle("text-ochre-200", up);
+      el("timerBar").classList.toggle("bg-ochre-400", up);
+      el("timerBar").classList.toggle("bg-moss-500", !up);
+      if (up && taskTimer.intervalId) {
+        clearInterval(taskTimer.intervalId);
+        taskTimer.intervalId = null;
+      }
+    }
+
+    function stopTaskTimer() {
+      if (taskTimer.intervalId) clearInterval(taskTimer.intervalId);
+      taskTimer.intervalId = null;
+      taskTimer.taskId = null;
+      el("timerPopup").classList.add("hidden");
+    }
+
+    el("timerCloseBtn").addEventListener("click", stopTaskTimer);
+    el("timerDoneBtn").addEventListener("click", () => {
+      const task = tasks.find((t) => t.id === taskTimer.taskId);
+      // Record only the time actually spent (capped at the chosen period),
+      // so the dashboard reflects real effort instead of the estimate.
+      const startedAt = taskTimer.endsAt - taskTimer.totalMs;
+      const elapsedMs = Math.min(Date.now() - startedAt, taskTimer.totalMs);
+      stopTaskTimer();
+      if (!task) return;
+      task.spent = Math.max(1, Math.round(elapsedMs / 60_000));
+      task.completed = true;
+      task.completedAt = Date.now();
+      saveTasks();
+      render();
+    });
+
+    // ---------- Render: dashboard ----------
+    const DASH_BAR_COLORS = ["bg-denim-500", "bg-moss-500", "bg-brand-500", "bg-ochre-400", "bg-ink-400"];
+
+    function fmtMinutes(min) {
+      if (min >= 60) {
+        const h = Math.floor(min / 60);
+        const m = min % 60;
+        return m ? `${h}h ${m}m` : `${h}h`;
+      }
+      return `${min}m`;
+    }
+
+    function renderDashboard() {
+      for (const btn of document.querySelectorAll(".dashScopeBtn")) {
+        const active = btn.dataset.scope === ui.dashScope;
+        btn.classList.toggle("bg-paper-50", active);
+        btn.classList.toggle("text-ink-900", active);
+        btn.classList.toggle("shadow-card", active);
+        btn.classList.toggle("text-ink-400", !active);
+      }
+
+      const powerBtn = el("dashPowerOnlyBtn");
+      powerBtn.className =
+        "whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold ring-1 transition " +
+        (ui.dashPowerOnly
+          ? "bg-ochre-100 text-ochre-700 ring-ochre-400/60"
+          : "bg-paper-50 text-ink-400 ring-ink-900/10 hover:bg-paper-200");
+
+      const inPowerScope = (t) => !ui.dashPowerOnly || t.isPower;
+
+      const scoped = tasks.filter(
+        (t) => t.duration > 0 && inPowerScope(t) && (ui.dashScope === "all" || t.completed)
+      );
+
+      // Average completed per day: total completions divided by the number of
+      // days from the first completion to today (inclusive).
+      const completedTasks = tasks.filter((t) => t.completed && t.completedAt && inPowerScope(t));
+      if (completedTasks.length) {
+        const firstDay = completedTasks
+          .map((t) => toISO(new Date(t.completedAt)))
+          .reduce((a, b) => (a < b ? a : b));
+        const spanDays = Math.max(
+          1,
+          Math.round((isoToDate(todayISO()) - isoToDate(firstDay)) / 86_400_000) + 1
+        );
+        const avg = completedTasks.length / spanDays;
+        el("dashAvg").textContent = String(Math.round(avg * 10) / 10);
+        el("dashAvgMeta").textContent =
+          `${completedTasks.length} completed over ${spanDays} day${spanDays === 1 ? "" : "s"}` +
+          (ui.dashPowerOnly ? " · ⚡ power only" : "");
+      } else {
+        el("dashAvg").textContent = "—";
+        el("dashAvgMeta").textContent = ui.dashPowerOnly ? "no power tasks completed yet" : "no completions yet";
+      }
+
+      // Total tasks created (respects the power-only toggle).
+      const created = tasks.filter(inPowerScope);
+      const createdDone = created.filter((t) => t.completed).length;
+      el("dashCreated").textContent = String(created.length);
+      el("dashCreatedMeta").textContent =
+        `${createdDone} completed · ${created.length - createdDone} open` +
+        (ui.dashPowerOnly ? " · ⚡ power only" : "");
+
+      // Completed tasks finished through the focus timer count their actual
+      // elapsed time; everything else falls back to the planned period.
+      const minutesFor = (t) => (t.completed && t.spent > 0 ? t.spent : t.duration);
+
+      const byTag = new Map();
+      for (const t of scoped) {
+        const keys = t.tags.length ? t.tags : ["Untagged"];
+        for (const k of keys) byTag.set(k, (byTag.get(k) || 0) + minutesFor(t));
+      }
+      const total = [...byTag.values()].reduce((a, b) => a + b, 0);
+
+      // Efficiency: logged time (completed work only) measured against
+      // 8 productive hours per day, counted from the first day on which a
+      // task was created through today.
+      const createdScope = tasks.filter(inPowerScope);
+      if (createdScope.length) {
+        const firstCreated = createdScope
+          .map((t) => toISO(new Date(t.createdAt)))
+          .reduce((a, b) => (a < b ? a : b));
+        const effSpanDays = Math.max(
+          1,
+          Math.round((isoToDate(todayISO()) - isoToDate(firstCreated)) / 86_400_000) + 1
+        );
+        const available = effSpanDays * PRODUCTIVE_MINUTES_PER_DAY;
+        const logged = tasks
+          .filter((t) => t.completed && inPowerScope(t))
+          .reduce((sum, t) => sum + minutesFor(t), 0);
+        const effPct = Math.round((logged / available) * 100);
+        el("dashEff").textContent = effPct + "%";
+        el("dashEffMeta").textContent =
+          `${fmtMinutes(logged)} logged of ${fmtMinutes(available)} available (8h × ${effSpanDays} day${effSpanDays === 1 ? "" : "s"})`;
+        el("dashEffBar").style.width = Math.min(100, effPct) + "%";
+      } else {
+        el("dashEff").textContent = "—";
+        el("dashEffMeta").textContent = "no tasks yet";
+        el("dashEffBar").style.width = "0%";
+      }
+
+      el("dashTotal").textContent = fmtMinutes(total || 0);
+      el("dashMeta").textContent =
+        `${scoped.length} task${scoped.length === 1 ? "" : "s"} with a time period · ` +
+        (ui.dashScope === "all" ? "all tasks" : "completed tasks only") +
+        (ui.dashPowerOnly ? " · ⚡ power only" : "");
+
+      const rowsEl = el("dashRows");
+      rowsEl.innerHTML = "";
+      el("dashEmpty").classList.toggle("hidden", total > 0);
+
+      const rows = [...byTag.entries()].sort((a, b) => b[1] - a[1]);
+      rows.forEach(([tag, min], i) => {
+        const pct = Math.round((min / total) * 100);
+        const chip = tag === "Untagged"
+          ? '<span class="inline-flex items-center rounded-full bg-paper-300 px-2 py-0.5 text-[11px] font-semibold text-ink-400 ring-1 ring-ink-500/20">Untagged</span>'
+          : tagChipHTML(tag);
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <div class="mb-1.5 flex items-center justify-between gap-3">
+            ${chip}
+            <span class="text-xs font-semibold text-ink-500">${fmtMinutes(min)} · ${pct}%</span>
+          </div>
+          <div class="h-2.5 overflow-hidden rounded-full bg-paper-300/60">
+            <div class="h-full rounded-full ${DASH_BAR_COLORS[i % DASH_BAR_COLORS.length]}" style="width:${pct}%"></div>
+          </div>
+        `;
+        rowsEl.appendChild(li);
+      });
+    }
+
+    // ---------- Render: history ----------
+    function renderHistory() {
+      const monthStart = new Date(ui.calYear, ui.calMonth, 1);
+      el("calMonthLabel").textContent = monthStart.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+      const now = new Date();
+      el("calNextBtn").disabled =
+        ui.calYear > now.getFullYear() ||
+        (ui.calYear === now.getFullYear() && ui.calMonth >= now.getMonth());
+
+      const grid = el("calGrid");
+      grid.innerHTML = "";
+
+      const firstWeekday = (monthStart.getDay() + 6) % 7; // Monday-first
+      const daysInMonth = new Date(ui.calYear, ui.calMonth + 1, 0).getDate();
+      const t = todayISO();
+
+      for (let i = 0; i < firstWeekday; i++) grid.appendChild(document.createElement("div"));
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const iso = toISO(new Date(ui.calYear, ui.calMonth, d));
+        const isFuture = iso > t;
+        const doneCount = completedOn(iso).length;
+        const powerDay = !isFuture && isPowerDay(iso);
+        const selected = iso === ui.selectedHistoryDate;
+
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.disabled = isFuture;
+
+        let cellStyle;
+        if (isFuture) {
+          cellStyle = "cursor-not-allowed text-ink-300/50";
+        } else if (selected) {
+          cellStyle = powerDay
+            ? "bg-moss-600 font-bold text-paper-50 shadow-card ring-2 ring-moss-700"
+            : "bg-brand-500 font-bold text-paper-50 shadow-card";
+        } else if (powerDay) {
+          cellStyle = "bg-moss-100 font-bold text-moss-700 ring-1 ring-moss-500/50 hover:bg-moss-200";
+        } else if (iso === t) {
+          cellStyle = "bg-brand-50 font-bold text-brand-600 hover:bg-brand-100";
+        } else {
+          cellStyle = "text-ink-500 hover:bg-paper-200";
+        }
+        cell.className = "relative grid h-11 place-items-center rounded-xl text-sm font-medium transition " + cellStyle;
+
+        cell.innerHTML = `
+          ${d}
+          ${doneCount > 0 && !powerDay ? `<span class="absolute bottom-1 h-1.5 w-1.5 rounded-full ${selected ? "bg-paper-50" : "bg-denim-500"}"></span>` : ""}
+          ${powerDay ? `<span class="absolute bottom-0.5 text-[8px] ${selected ? "text-paper-50" : "text-moss-600"}">⚡</span>` : ""}
+        `;
+        cell.addEventListener("click", () => {
+          ui.selectedHistoryDate = iso;
+          renderHistory();
+        });
+        grid.appendChild(cell);
+      }
+
+      renderHistoryDay();
+    }
+
+    function renderHistoryDay() {
+      const iso = ui.selectedHistoryDate;
+      const done = completedOn(iso);
+      const powerDone = powerCompletedCount(iso);
+      el("historyDayLabel").textContent = fullDate(iso);
+      el("historyDaySummary").textContent = done.length
+        ? `${done.length} task${done.length === 1 ? "" : "s"} accomplished · ⚡ ${powerDone}/${POWER_GOAL} power`
+        : "";
+
+      const badge = el("historyPowerBadge");
+      badge.classList.toggle("hidden", !isPowerDay(iso));
+      badge.classList.toggle("inline-flex", isPowerDay(iso));
+
+      const list = el("historyDayList");
+      list.innerHTML = "";
+      el("historyDayEmpty").classList.toggle("hidden", done.length > 0);
+
+      for (const task of done) {
+        const li = document.createElement("li");
+        li.className = "flex items-start gap-3 rounded-xl bg-paper-200/60 p-3 ring-1 ring-ink-900/10";
+        li.innerHTML = `
+          <span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-moss-100 text-moss-600">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="break-words text-sm font-medium text-ink-700">${task.isPower ? "⚡ " : ""}${escapeHTML(task.title)}</p>
+            <div class="mt-1 flex flex-wrap items-center gap-1.5">
+              <span class="text-[11px] font-semibold text-ink-400">
+                done at ${new Date(task.completedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+              </span>
+              ${task.tags.map((tag) => tagChipHTML(tag)).join("")}
+            </div>
+          </div>
+        `;
+        list.appendChild(li);
+      }
+
+      renderHistoryIncomplete(iso);
+    }
+
+    function renderHistoryIncomplete(iso) {
+      // Only past days can be backfilled, and only with tasks that are still
+      // sitting in the Incomplete tray for that exact day. A task rescheduled
+      // to today/future no longer belongs to this day's history.
+      const overdueHere = iso < todayISO()
+        ? tasks.filter((t) => !t.completed && t.date === iso)
+        : [];
+
+      el("historyIncompleteSection").classList.toggle("hidden", overdueHere.length === 0);
+      const list = el("historyIncompleteList");
+      list.innerHTML = "";
+
+      for (const task of overdueHere) {
+        const li = document.createElement("li");
+        li.className = "flex items-start gap-3 rounded-xl bg-paper-50 p-3 ring-1 ring-ochre-200";
+        li.innerHTML = `
+          <input type="checkbox" aria-label="Mark task completed on this day"
+            class="histCheck mt-0.5 h-[18px] w-[18px] shrink-0 cursor-pointer rounded-md border-ochre-400 text-moss-600 focus:ring-moss-500" />
+          <div class="min-w-0 flex-1">
+            <p class="break-words text-sm font-medium text-ink-700">${task.isPower ? "⚡ " : ""}${escapeHTML(task.title)}</p>
+            ${task.tags.length ? `<div class="mt-1 flex flex-wrap items-center gap-1.5">${task.tags.map((tag) => tagChipHTML(tag)).join("")}</div>` : ""}
+          </div>
+        `;
+        li.querySelector(".histCheck").addEventListener("change", () => {
+          task.completed = true;
+          // Record the completion on the viewed day (noon, to be safely
+          // inside the day regardless of timezone quirks).
+          task.completedAt = isoToDate(iso).getTime() + 12 * 3_600_000;
+          saveTasks();
+          renderHistory();
+        });
+        list.appendChild(li);
+      }
+    }
+
+    // ---------- Task modal ----------
+    const taskModal = el("taskModal");
+    const taskForm = el("taskForm");
+    const taskTitleInput = el("taskTitleInput");
+    const taskDateInput = el("taskDateInput");
+    const taskTimeInput = el("taskTimeInput");
+    const taskPowerInput = el("taskPowerInput");
+    const taskTagsInput = el("taskTagsInput");
+    const tagLibraryChipsEl = el("tagLibraryChips");
+    const taskDeleteBtn = el("taskDeleteBtn");
+
+    function parseTags(value) {
+      return [...new Set(
+        value.split(",").map((s) => capitalizeFirst(s.trim())).filter(Boolean)
+      )];
+    }
+
+    /**
+     * Forgiving time parser: "9" -> 09:00, "930" -> 09:30, "1430" -> 14:30,
+     * "14:30" / "14.30" -> 14:30. Returns "" for empty, null for invalid.
+     */
+    function parseTimeInput(raw) {
+      const s = String(raw).trim();
+      if (!s) return "";
+      let h, m;
+      if (/[:.]/.test(s)) {
+        const [a, b = "0"] = s.split(/[:.]/);
+        if (!/^\d{1,2}$/.test(a.trim()) || !/^\d{1,2}$/.test(b.trim())) return null;
+        h = Number(a); m = Number(b);
+      } else if (/^\d{1,4}$/.test(s)) {
+        if (s.length <= 2) { h = Number(s); m = 0; }
+        else if (s.length === 3) { h = Number(s[0]); m = Number(s.slice(1)); }
+        else { h = Number(s.slice(0, 2)); m = Number(s.slice(2)); }
+      } else {
+        return null;
+      }
+      if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    }
+
+    function renderTagLibraryChips() {
+      tagLibraryChipsEl.innerHTML = "";
+      if (tagLibrary.length === 0) {
+        tagLibraryChipsEl.innerHTML = '<span class="text-xs text-ink-300">No tags yet — type one below.</span>';
+        return;
+      }
+
+      for (const tag of tagLibrary) {
+        const selected = ui.modalSelectedTags.has(tag);
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className =
+          "group/chip inline-flex items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1.5 text-[11px] font-semibold ring-1 transition " +
+          (selected
+            ? "bg-ink-700 text-paper-50 ring-ink-700"
+            : `${tagClasses(tag)} opacity-80 hover:opacity-100`);
+
+        const labelSpan = document.createElement("span");
+        labelSpan.textContent = (selected ? "✓ " : "") + tag;
+        chip.appendChild(labelSpan);
+
+        const delBtn = document.createElement("span");
+        delBtn.setAttribute("role", "button");
+        delBtn.setAttribute("aria-label", `Delete tag ${tag} everywhere`);
+        delBtn.title = "Delete this tag everywhere";
+        delBtn.className =
+          "tagDelete grid h-4 w-4 place-items-center rounded-full text-[10px] leading-none transition " +
+          (selected ? "hover:bg-paper-50/25" : "hover:bg-ink-900/15");
+        delBtn.textContent = "×";
+        chip.appendChild(delBtn);
+
+        chip.addEventListener("click", (e) => {
+          if (e.target === delBtn) {
+            if (!confirm(`Delete tag "${tag}"? It will be removed from every task.`)) return;
+            deleteTagEverywhere(tag);
+            renderTagLibraryChips();
+            renderTagFilter();
+            return;
+          }
+          if (ui.modalSelectedTags.has(tag)) ui.modalSelectedTags.delete(tag);
+          else ui.modalSelectedTags.add(tag);
+          renderTagLibraryChips();
+        });
+
+        tagLibraryChipsEl.appendChild(chip);
+      }
+    }
+
+    function openTaskModal(taskId, presetDate) {
+      ui.editingTaskId = taskId;
+      const task = taskId ? tasks.find((t) => t.id === taskId) : null;
+
+      el("taskModalTitle").textContent = task ? "Edit task" : "New task";
+      taskDeleteBtn.classList.toggle("hidden", !task);
+      taskTitleInput.value = task ? task.title : "";
+      taskTimeInput.value = task ? task.time : "";
+      taskPowerInput.checked = task ? task.isPower : false;
+      taskTagsInput.value = "";
+      ui.modalSelectedTags = new Set(task ? task.tags : []);
+      // Scheduling is only allowed for today and the future. An overdue task
+      // keeps showing its past date until rescheduled, but can't be moved
+      // further into the past.
+      taskDateInput.min = todayISO();
+      taskDateInput.value = task ? task.date : (presetDate || addDaysISO(todayISO(), ui.dayOffset));
+      renderTagLibraryChips();
+
+      taskModal.classList.remove("hidden");
+      taskModal.classList.add("flex");
+      requestAnimationFrame(() => taskTitleInput.focus());
+    }
+
+    function closeTaskModal() {
+      ui.editingTaskId = null;
+      taskModal.classList.add("hidden");
+      taskModal.classList.remove("flex");
+    }
+
+    taskForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const title = capitalizeFirst(taskTitleInput.value.trim());
+      if (!title) { taskTitleInput.focus(); return; }
+
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(taskDateInput.value) ? taskDateInput.value : todayISO();
+      const time = parseTimeInput(taskTimeInput.value);
+      if (time === null) {
+        taskTimeInput.focus();
+        taskTimeInput.select();
+        return;
+      }
+      const isPower = taskPowerInput.checked;
+      const newTags = parseTags(taskTagsInput.value);
+      const tags = [...new Set([...ui.modalSelectedTags, ...newTags])];
+      addTagsToLibrary(newTags);
+
+      if (ui.editingTaskId) {
+        const task = tasks.find((t) => t.id === ui.editingTaskId);
+        if (task) {
+          if (task.date !== date) {
+            task.order = tasksForDay(date).length;
+          }
+          Object.assign(task, { title, date, time, tags, isPower });
+        }
+      } else {
+        tasks.push({
+          id: uid(), title, date, time, tags, isPower, duration: 0, spent: 0,
+          completed: false, completedAt: null,
+          createdAt: Date.now(),
+          order: tasksForDay(date).length,
+        });
+      }
+
+      saveTasks();
+      closeTaskModal();
+      render();
+    });
+
+    taskDeleteBtn.addEventListener("click", () => {
+      if (!ui.editingTaskId) return;
+      tasks = tasks.filter((t) => t.id !== ui.editingTaskId);
+      saveTasks();
+      closeTaskModal();
+      render();
+    });
+
+    taskTimeInput.addEventListener("blur", () => {
+      const parsed = parseTimeInput(taskTimeInput.value);
+      if (parsed !== null) taskTimeInput.value = parsed;
+    });
+
+    el("taskModalCloseBtn").addEventListener("click", closeTaskModal);
+    el("taskCancelBtn").addEventListener("click", closeTaskModal);
+    el("taskModalBackdrop").addEventListener("click", closeTaskModal);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !taskModal.classList.contains("hidden")) closeTaskModal();
+    });
+
+    // ---------- Export / import ----------
+    el("exportBtn").addEventListener("click", () => {
+      const payload = JSON.stringify(
+        { app: "powerlist", version: 2, exportedAt: new Date().toISOString(), tasks, tags: tagLibrary },
+        null, 2
+      );
+      const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `power-list-backup-${todayISO()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    });
+
+    el("importBtn").addEventListener("click", () => el("importFileInput").click());
+    el("importFileInput").addEventListener("change", async () => {
+      const file = el("importFileInput").files && el("importFileInput").files[0];
+      el("importFileInput").value = "";
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        const incoming = Array.isArray(parsed) ? parsed : parsed.tasks;
+        if (!Array.isArray(incoming)) throw new Error("no tasks array");
+        const normalized = normalizeTasks(incoming);
+        if (!confirm(`Import ${normalized.length} task${normalized.length === 1 ? "" : "s"}? This replaces the current data.`)) return;
+        tasks = normalized;
+        const importedTags = Array.isArray(parsed.tags) ? parsed.tags.map((x) => capitalizeFirst(String(x))) : [];
+        tagLibrary = [...new Set([...importedTags, ...tasks.flatMap((t) => t.tags)])]
+          .sort((a, b) => a.localeCompare(b));
+        saveTasks();
+        saveTagLibrary();
+        render();
+      } catch {
+        alert("This file doesn't look like a Power List backup.");
+      }
+    });
+
+    // ---------- Top-level events ----------
+    el("newTaskBtn").addEventListener("click", () => openTaskModal(null));
+    el("navPrevBtn").addEventListener("click", () => {
+      if (ui.dayOffset > 0) { ui.dayOffset -= 1; renderBoard(); }
+    });
+    el("navNextBtn").addEventListener("click", () => {
+      ui.dayOffset += 1;
+      renderBoard();
+    });
+    el("backToTodayBtn").addEventListener("click", () => {
+      ui.dayOffset = 0;
+      renderBoard();
+    });
+    el("showCompletedBtn").addEventListener("click", () => {
+      ui.showCompleted = !ui.showCompleted;
+      renderBoard();
+    });
+
+    el("calPrevBtn").addEventListener("click", () => {
+      ui.calMonth -= 1;
+      if (ui.calMonth < 0) { ui.calMonth = 11; ui.calYear -= 1; }
+      renderHistory();
+    });
+    el("calNextBtn").addEventListener("click", () => {
+      ui.calMonth += 1;
+      if (ui.calMonth > 11) { ui.calMonth = 0; ui.calYear += 1; }
+      renderHistory();
+    });
+
+    for (const tab of document.querySelectorAll(".viewTab")) {
+      tab.addEventListener("click", () => {
+        ui.view = tab.dataset.view;
+        render();
+      });
+    }
+
+    for (const btn of document.querySelectorAll(".dashScopeBtn")) {
+      btn.addEventListener("click", () => {
+        ui.dashScope = btn.dataset.scope;
+        renderDashboard();
+      });
+    }
+
+    el("dashPowerOnlyBtn").addEventListener("click", () => {
+      ui.dashPowerOnly = !ui.dashPowerOnly;
+      renderDashboard();
+    });
+
+    // ---------- Render root ----------
+    function render() {
+      for (const tab of document.querySelectorAll(".viewTab")) {
+        const active = tab.dataset.view === ui.view;
+        tab.classList.toggle("bg-paper-50", active);
+        tab.classList.toggle("text-ink-900", active);
+        tab.classList.toggle("shadow-card", active);
+        tab.classList.toggle("text-ink-400", !active);
+      }
+      el("boardView").classList.toggle("hidden", ui.view !== "board");
+      el("historyView").classList.toggle("hidden", ui.view !== "history");
+      el("dashboardView").classList.toggle("hidden", ui.view !== "dashboard");
+
+      renderTagFilter();
+      if (ui.view === "board") renderBoard();
+      else if (ui.view === "history") renderHistory();
+      else renderDashboard();
+    }
+
+    // ---------- Boot ----------
+    (function init() {
+      tasks = loadTasks();
+      tagLibrary = loadTagLibrary();
+      saveTagLibrary();
+      const now = new Date();
+      ui.calYear = now.getFullYear();
+      ui.calMonth = now.getMonth();
+      ui.selectedHistoryDate = todayISO();
+      render();
+    })();
+  </script>
+</body>
+</html>
