@@ -2008,8 +2008,10 @@
           options: { emailRedirectTo: location.origin + location.pathname },
         });
         el("syncSentMsg").textContent = error
-          ? "Could not send the link: " + error.message
-          : "Link sent — open the email on this device and tap the link to finish signing in.";
+          ? (/rate limit/i.test(error.message)
+              ? "Too many sign-in emails in a short time. Check your inbox/spam for an earlier email (the newest link works for about an hour), or try again in an hour."
+              : "Could not send the link: " + error.message)
+          : "Link sent — open the email on this device and tap the link to finish signing in. (If it doesn't arrive, check spam.)";
       } catch {
         el("syncSentMsg").textContent = "Could not send the link — check your internet connection.";
       }
