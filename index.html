@@ -645,8 +645,10 @@
         : { tasks: STORAGE_KEY, tags: TAGS_KEY };
     }
 
-    /** Load this user's local cache (and one-time legacy data) after sign-in. */
-    function loadUserData(userId) {
+    const LEGACY_OWNER_KEY = "powerlist_legacy_owner";
+
+    /** Load this user's per-account local cache (no legacy migration). */
+    function loadUserCacheOnly(userId) {
       const keys = storageKeysFor(userId);
       let loaded = [];
       try {
@@ -656,15 +658,6 @@
           if (Array.isArray(parsed)) loaded = normalizeTasks(parsed);
         }
       } catch { /* start empty */ }
-
-      // One-time: lift pre-sync data from the old device-wide keys into this account.
-      const migrateFlag = `powerlist_migrated_${userId}`;
-      if (!localStorage.getItem(migrateFlag)) {
-        const legacy = loadTasks();
-        if (legacy.length && !loaded.length) loaded = legacy;
-        localStorage.setItem(migrateFlag, "1");
-      }
-
       tasks = loaded;
 
       let stored = [];
@@ -676,6 +669,36 @@
       const set = new Set(stored);
       for (const t of tasks) for (const tag of t.tags) set.add(tag);
       tagLibrary = [...set].sort((a, b) => a.localeCompare(b));
+    }
+
+    /**
+     * One-time lift of pre-sync device data into ONE account only.
+     * Without the owner lock, whichever user signs in second would inherit
+     * the first user's local tasks on this browser/app.
+     */
+    function tryMigrateLegacy(userId) {
+      if (tasks.length > 0) return false;
+      const owner = localStorage.getItem(LEGACY_OWNER_KEY);
+      if (owner && owner !== userId) return false;
+
+      const legacy = loadTasks();
+      if (!legacy.length) return false;
+
+      if (!owner) localStorage.setItem(LEGACY_OWNER_KEY, userId);
+      if (localStorage.getItem(LEGACY_OWNER_KEY) !== userId) return false;
+
+      tasks = legacy;
+      const set = new Set(tagLibrary);
+      for (const t of tasks) for (const tag of t.tags) set.add(tag);
+      tagLibrary = [...set].sort((a, b) => a.localeCompare(b));
+      meta.updatedAt = Date.now();
+      saveMeta();
+      try {
+        localStorage.setItem(activeStorageKeys().tasks, JSON.stringify(tasks));
+        localStorage.setItem(activeStorageKeys().tags, JSON.stringify(tagLibrary));
+      } catch { /* full */ }
+      writeBackup();
+      return true;
     }
 
     function storageKeysFor(userId) {
@@ -2058,10 +2081,13 @@
       const pw = el("syncPasswordInput");
       if (pw) pw.value = "";
       el("syncSentMsg").classList.add("hidden");
-      loadUserData(user.id);
+      // 1. Per-account cache → 2. cloud (source of truth) → 3. legacy only if still empty.
+      loadUserCacheOnly(user.id);
       updateSyncModalUI();
       render();
       await pullFromCloud();
+      if (tasks.length === 0 && tryMigrateLegacy(user.id)) await pushToCloud();
+      render();
       startRealtime();
       setSyncModalOpen(false);
     }
