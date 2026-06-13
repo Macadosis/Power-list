@@ -124,21 +124,6 @@
           </svg>
           <span id="syncDot" class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-ink-300 ring-2 ring-paper-50"></span>
         </button>
-        <button id="exportBtn" type="button" title="Export all data to a backup file" aria-label="Export data"
-          class="hidden h-9 w-9 place-items-center rounded-xl bg-paper-50 text-ink-400 ring-1 ring-ink-900/10 shadow-card transition hover:bg-paper-200 hover:text-ink-700 sm:grid">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M4 19h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
-          </svg>
-        </button>
-        <button id="importBtn" type="button" title="Import data from a backup file" aria-label="Import data"
-          class="hidden h-9 w-9 place-items-center rounded-xl bg-paper-50 text-ink-400 ring-1 ring-ink-900/10 shadow-card transition hover:bg-paper-200 hover:text-ink-700 sm:grid">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M12 15V3M7 8l5-5 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M4 19h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
-          </svg>
-        </button>
-        <input id="importFileInput" type="file" accept="application/json,.json" class="hidden" />
         <button id="newTaskBtn" type="button"
           class="ml-1 hidden items-center gap-2 rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-paper-50 shadow-card transition hover:bg-brand-600 active:scale-[0.98] sm:inline-flex">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -452,11 +437,12 @@
         </label>
 
         <div>
-          <label class="mb-1.5 block text-xs font-semibold text-ink-500">Tags</label>
+          <label class="mb-1.5 block text-xs font-semibold text-ink-500">Tags <span class="text-clay-500">*</span></label>
           <div id="tagLibraryChips" class="mb-2 flex flex-wrap gap-1.5"></div>
           <input id="taskTagsInput" type="text" autocomplete="off" spellcheck="false" placeholder="New tag (comma separated)"
             class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
-          <p class="mt-1.5 text-[11px] text-ink-300">Click a chip to add or remove it from this task. The small × deletes a tag everywhere.</p>
+          <p class="mt-1.5 text-[11px] text-ink-300">At least one tag is required. Click a chip to add or remove it from this task. The small × deletes a tag everywhere.</p>
+          <p id="taskTagsError" class="mt-1.5 hidden text-[11px] font-semibold text-clay-600">Please add at least one tag.</p>
         </div>
 
         <div class="flex items-center justify-between pt-1">
@@ -1158,11 +1144,68 @@
       render();
     }
 
+    // ---------- Edge auto-scroll for native (mouse) drag ----------
+    // The browser's built-in drag doesn't scroll the page, so when the cursor
+    // nears the top/bottom edge during a drag we scroll it ourselves — this is
+    // what lets a narrow desktop window (or a real mouse) reach off-screen days.
+    const mouseScroll = { y: 0, raf: null };
+
+    function mouseScrollTick() {
+      if (!draggedTaskId) { mouseScroll.raf = null; return; }
+      const EDGE = 90, MAX = 18;
+      const y = mouseScroll.y, h = window.innerHeight;
+      let dy = 0;
+      if (y < EDGE) dy = -MAX * (1 - y / EDGE);
+      else if (y > h - EDGE) dy = MAX * (1 - (h - y) / EDGE);
+      if (dy) window.scrollBy(0, dy);
+      mouseScroll.raf = requestAnimationFrame(mouseScrollTick);
+    }
+
+    function stopMouseScroll() {
+      if (mouseScroll.raf) cancelAnimationFrame(mouseScroll.raf);
+      mouseScroll.raf = null;
+    }
+
+    document.addEventListener("dragover", (e) => {
+      if (!draggedTaskId) return;
+      e.preventDefault(); // allow dropping anywhere on the page, not just zones
+      mouseScroll.y = e.clientY;
+      if (!mouseScroll.raf) mouseScroll.raf = requestAnimationFrame(mouseScrollTick);
+    });
+    document.addEventListener("drop", stopMouseScroll);
+    document.addEventListener("dragend", stopMouseScroll);
+
     // ---------- Touch drag (iOS Safari has no native HTML5 drag events) ----------
     const touchState = {
       task: null, node: null, ghost: null, timer: null,
       startX: 0, startY: 0, offsetX: 0, offsetY: 0, active: false,
+      lastX: 0, lastY: 0, scrollRAF: null,
     };
+
+    // While dragging, scroll the page when the finger nears the top/bottom
+    // edge so distant day columns and the tray become reachable.
+    function autoScrollTick() {
+      if (!touchState.active) { touchState.scrollRAF = null; return; }
+      const EDGE = 90;   // px from an edge where scrolling kicks in
+      const MAX = 18;    // max px scrolled per frame
+      const y = touchState.lastY;
+      const h = window.innerHeight;
+      let dy = 0;
+      if (y < EDGE) dy = -MAX * (1 - y / EDGE);
+      else if (y > h - EDGE) dy = MAX * (1 - (h - y) / EDGE);
+      if (dy) {
+        const before = window.scrollY;
+        window.scrollBy(0, dy);
+        // Content slid under a stationary finger — refresh the drop target.
+        if (window.scrollY !== before) moveTouchDrag(touchState.lastX, touchState.lastY);
+      }
+      touchState.scrollRAF = requestAnimationFrame(autoScrollTick);
+    }
+
+    function stopAutoScroll() {
+      if (touchState.scrollRAF) cancelAnimationFrame(touchState.scrollRAF);
+      touchState.scrollRAF = null;
+    }
 
     function zoneUnderPoint(x, y) {
       const under = document.elementFromPoint(x, y);
@@ -1186,10 +1229,13 @@
       touchState.offsetX = x - rect.left;
       touchState.offsetY = y - rect.top;
       moveTouchDrag(x, y);
+      if (!touchState.scrollRAF) touchState.scrollRAF = requestAnimationFrame(autoScrollTick);
     }
 
     function moveTouchDrag(x, y) {
       if (!touchState.ghost) return;
+      touchState.lastX = x;
+      touchState.lastY = y;
       touchState.ghost.style.left = (x - touchState.offsetX) + "px";
       touchState.ghost.style.top = (y - touchState.offsetY) + "px";
 
@@ -1210,6 +1256,7 @@
     }
 
     function finishTouchDrag(x, y) {
+      stopAutoScroll();
       const zone = zoneUnderPoint(x, y);
       const id = draggedTaskId;
       if (touchState.ghost) touchState.ghost.remove();
@@ -1697,6 +1744,7 @@
       // further into the past.
       taskDateInput.min = todayISO();
       taskDateInput.value = task ? task.date : (presetDate || addDaysISO(todayISO(), ui.dayOffset));
+      el("taskTagsError").classList.add("hidden");
       renderTagLibraryChips();
 
       taskModal.classList.remove("hidden");
@@ -1725,6 +1773,12 @@
       const isPower = taskPowerInput.checked;
       const newTags = parseTags(taskTagsInput.value);
       const tags = [...new Set([...ui.modalSelectedTags, ...newTags])];
+      if (tags.length === 0) {
+        el("taskTagsError").classList.remove("hidden");
+        taskTagsInput.focus();
+        return;
+      }
+      el("taskTagsError").classList.add("hidden");
       addTagsToLibrary(newTags);
 
       if (ui.editingTaskId) {
@@ -1772,45 +1826,6 @@
       if (!syncModal.classList.contains("hidden")) {
         syncModal.classList.add("hidden");
         syncModal.classList.remove("flex");
-      }
-    });
-
-    // ---------- Export / import ----------
-    el("exportBtn").addEventListener("click", () => {
-      const payload = JSON.stringify(
-        { app: "powerlist", version: 2, exportedAt: new Date().toISOString(), tasks, tags: tagLibrary },
-        null, 2
-      );
-      const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `power-list-backup-${todayISO()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    });
-
-    el("importBtn").addEventListener("click", () => el("importFileInput").click());
-    el("importFileInput").addEventListener("change", async () => {
-      const file = el("importFileInput").files && el("importFileInput").files[0];
-      el("importFileInput").value = "";
-      if (!file) return;
-      try {
-        const parsed = JSON.parse(await file.text());
-        const incoming = Array.isArray(parsed) ? parsed : parsed.tasks;
-        if (!Array.isArray(incoming)) throw new Error("no tasks array");
-        const normalized = normalizeTasks(incoming);
-        if (!confirm(`Import ${normalized.length} task${normalized.length === 1 ? "" : "s"}? This replaces the current data.`)) return;
-        tasks = normalized;
-        const importedTags = Array.isArray(parsed.tags) ? parsed.tags.map((x) => capitalizeFirst(String(x))) : [];
-        tagLibrary = [...new Set([...importedTags, ...tasks.flatMap((t) => t.tags)])]
-          .sort((a, b) => a.localeCompare(b));
-        saveTasks();
-        saveTagLibrary();
-        render();
-      } catch {
-        alert("This file doesn't look like a Power List backup.");
       }
     });
 
