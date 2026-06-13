@@ -361,17 +361,23 @@
       <!-- Signed out -->
       <div id="syncSignedOut" class="mt-4 space-y-3">
         <p class="text-sm text-ink-500">
-          Sign in with your email to keep your tasks identical and live-updated on every device.
-          No password — we'll email you a sign-in link.
+          Sign in with an email and password to keep your tasks identical and live-updated on every device.
         </p>
         <form id="syncForm" class="space-y-2">
           <input id="syncEmailInput" type="email" required autocomplete="email" placeholder="you@example.com"
             class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
-          <button id="syncSendBtn" type="submit"
+          <input id="syncPasswordInput" type="password" required autocomplete="current-password" minlength="6" placeholder="Password (at least 6 characters)"
+            class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          <button id="syncSignInBtn" type="submit"
             class="w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-paper-50 shadow-card transition hover:bg-brand-600 disabled:opacity-50">
-            Send sign-in link
+            Sign in
+          </button>
+          <button id="syncSignUpBtn" type="button"
+            class="w-full rounded-xl px-4 py-2 text-xs font-semibold text-ink-400 transition hover:bg-paper-200 disabled:opacity-50">
+            First time here? Create an account
           </button>
         </form>
+
         <p id="syncSentMsg" class="hidden rounded-xl bg-moss-50 px-3 py-2 text-xs text-moss-700 ring-1 ring-moss-200"></p>
       </div>
 
@@ -1986,6 +1992,9 @@
     async function handleSignedIn(user) {
       syncState.user = user;
       el("syncEmailLabel").textContent = user.email || "";
+      const pw = el("syncPasswordInput");
+      if (pw) pw.value = "";
+      el("syncSentMsg").classList.add("hidden");
       updateSyncModalUI();
       await pullFromCloud();
       startRealtime();
@@ -2030,30 +2039,75 @@
     el("syncModalCloseBtn").addEventListener("click", () => setSyncModalOpen(false));
     el("syncModalBackdrop").addEventListener("click", () => setSyncModalOpen(false));
 
+    function showSyncMsg(text, ok) {
+      const msg = el("syncSentMsg");
+      msg.textContent = text;
+      msg.className = ok
+        ? "rounded-xl bg-moss-50 px-3 py-2 text-xs text-moss-700 ring-1 ring-moss-200"
+        : "rounded-xl bg-clay-50 px-3 py-2 text-xs text-clay-600 ring-1 ring-clay-200";
+      msg.classList.remove("hidden");
+    }
+
+    function syncCredentials() {
+      return {
+        email: el("syncEmailInput").value.trim(),
+        password: el("syncPasswordInput").value,
+      };
+    }
+
+    function friendlyAuthError(message) {
+      if (/invalid login credentials/i.test(message))
+        return "Wrong email or password. If it's your first time, tap \"Create an account\".";
+      if (/already registered|already exists/i.test(message))
+        return "That account already exists — just tap \"Sign in\".";
+      if (/password/i.test(message) && /6/.test(message))
+        return "Password must be at least 6 characters.";
+      return message;
+    }
+
+    // Email + password sign-in. Everything happens inside the app — no email
+    // round-trip, no browser switch — so it works in the iOS Home-Screen app.
     el("syncForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const email = el("syncEmailInput").value.trim();
-      if (!email || !sbClient) return;
-      el("syncSendBtn").disabled = true;
+      const { email, password } = syncCredentials();
+      if (!email || !password || !sbClient) return;
+      el("syncSignInBtn").disabled = true;
       try {
-        const { error } = await sbClient.auth.signInWithOtp({
-          email,
-          options: { emailRedirectTo: location.origin + location.pathname },
-        });
-        el("syncSentMsg").textContent = error
-          ? (/rate limit/i.test(error.message)
-              ? "Too many sign-in emails in a short time. Check your inbox/spam for an earlier email (the newest link works for about an hour), or try again in an hour."
-              : "Could not send the link: " + error.message)
-          : "Link sent — open the email on this device and tap the link to finish signing in. (If it doesn't arrive, check spam.)";
+        const { data, error } = await sbClient.auth.signInWithPassword({ email, password });
+        if (error) showSyncMsg(friendlyAuthError(error.message), false);
+        else if (data && data.user) await handleSignedIn(data.user);
       } catch {
-        el("syncSentMsg").textContent = "Could not send the link — check your internet connection.";
+        showSyncMsg("Could not sign in — check your internet connection.", false);
       }
-      el("syncSentMsg").classList.remove("hidden");
-      el("syncSendBtn").disabled = false;
+      el("syncSignInBtn").disabled = false;
+    });
+
+    el("syncSignUpBtn").addEventListener("click", async () => {
+      const { email, password } = syncCredentials();
+      if (!sbClient) return;
+      if (!email || !password) { showSyncMsg("Enter an email and a password (6+ characters) first.", false); return; }
+      el("syncSignUpBtn").disabled = true;
+      try {
+        const { data, error } = await sbClient.auth.signUp({ email, password });
+        if (error) {
+          showSyncMsg(friendlyAuthError(error.message), false);
+        } else if (data && data.session && data.user) {
+          // Email confirmation disabled: we get a session immediately.
+          await handleSignedIn(data.user);
+        } else {
+          // Email confirmation still enabled in Supabase.
+          showSyncMsg("Account created. Confirm it from the email we sent, then tap \"Sign in\". (Tip: disable email confirmation in Supabase to skip this.)", true);
+        }
+      } catch {
+        showSyncMsg("Could not create the account — check your internet connection.", false);
+      }
+      el("syncSignUpBtn").disabled = false;
     });
 
     el("syncSignOutBtn").addEventListener("click", async () => {
       try { if (sbClient) await sbClient.auth.signOut(); } catch { /* already out */ }
+      el("syncPasswordInput").value = "";
+      el("syncSentMsg").classList.add("hidden");
       handleSignedOut();
     });
 
