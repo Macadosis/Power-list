@@ -1969,7 +1969,7 @@
             <p class="break-words text-sm font-medium text-ink-700">${task.isPower ? "⚡ " : ""}${escapeHTML(task.title)}</p>
             <div class="mt-1 flex flex-wrap items-center gap-1.5">
               <span class="text-[11px] font-semibold text-ink-400">
-                planned ${shortDate(task.date)} · ${task.duration > 0 ? `⏱ ${fmtMinutes(task.duration)}` : "no est."}
+                planned ${task.time || "no time"} · ${task.duration > 0 ? `⏱ ${fmtMinutes(task.duration)}` : "no est."}
               </span>
               ${task.tags.map((tag) => tagChipHTML(tag)).join("")}
             </div>
