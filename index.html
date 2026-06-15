@@ -758,7 +758,7 @@
       try {
         localStorage.setItem(
           BACKUP_PREFIX + todayISO(),
-          JSON.stringify({ tasks, tags: tagLibrary, savedAt: Date.now() })
+          JSON.stringify({ tasks, tags: tagLibrary, dayNotes, savedAt: Date.now() })
         );
         const keys = Object.keys(localStorage).filter((k) => k.startsWith(BACKUP_PREFIX)).sort();
         while (keys.length > BACKUP_KEEP) localStorage.removeItem(keys.shift());
@@ -918,21 +918,25 @@
       return uid ? `${DAY_NOTES_KEY}_${uid}` : DAY_NOTES_KEY;
     }
 
+    function normalizeDayNotes(parsed) {
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      return Object.fromEntries(
+        Object.entries(parsed).filter(([k, v]) => /^\d{4}-\d{2}-\d{2}$/.test(k) && typeof v === "string" && v.trim())
+      );
+    }
+
     function loadDayNotes() {
       try {
         const raw = localStorage.getItem(dayNotesStorageKey());
-        const parsed = raw ? JSON.parse(raw) : {};
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          return Object.fromEntries(
-            Object.entries(parsed).filter(([k, v]) => /^\d{4}-\d{2}-\d{2}$/.test(k) && typeof v === "string")
-          );
-        }
+        return normalizeDayNotes(raw ? JSON.parse(raw) : {});
       } catch { /* start fresh */ }
       return {};
     }
 
     function saveDayNotes() {
+      if (syncRequired() && !isSignedIn()) return;
       try { localStorage.setItem(dayNotesStorageKey(), JSON.stringify(dayNotes)); } catch { /* full */ }
+      markLocalChange();
     }
 
     function loadTagLibrary() {
@@ -2327,11 +2331,13 @@
         const cloudTags = Array.isArray(doc.tags) ? doc.tags.map((x) => capitalizeFirst(String(x))) : [];
         tagLibrary = [...new Set([...cloudTags, ...tasks.flatMap((t) => t.tags)])]
           .sort((a, b) => a.localeCompare(b));
+        dayNotes = normalizeDayNotes(doc.dayNotes);
         meta.updatedAt = Number(doc.updatedAt) || Date.now();
         saveMeta();
         try {
           localStorage.setItem(activeStorageKeys().tasks, JSON.stringify(tasks));
           localStorage.setItem(activeStorageKeys().tags, JSON.stringify(tagLibrary));
+          localStorage.setItem(dayNotesStorageKey(), JSON.stringify(dayNotes));
         } catch { /* full */ }
         writeBackup();
         render();
@@ -2352,7 +2358,7 @@
       try {
         const { error } = await sbClient.from("lists").upsert({
           user_id: syncState.user.id,
-          data: { tasks, tags: tagLibrary, updatedAt: meta.updatedAt, deviceId: meta.deviceId },
+          data: { tasks, tags: tagLibrary, dayNotes, updatedAt: meta.updatedAt, deviceId: meta.deviceId },
           updated_at: new Date().toISOString(),
         });
         setSyncStatus(error ? "offline" : "synced");
