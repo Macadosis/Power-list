@@ -1023,8 +1023,16 @@
     }
     function bookedMinutesForDay(iso) {
       return tasks
-        .filter((t) => t.date === iso && t.duration > 0)
+        .filter((t) => t.date === iso && t.duration > 0 && matchesFilter(t) && (ui.showCompleted || !t.completed))
         .reduce((sum, t) => sum + t.duration, 0);
+    }
+    function bookedTimeTitle() {
+      if (!ui.filterTag) return "Total booked time from task estimates (⏱)";
+      if (ui.filterTag === POWER_FILTER) return "Booked time for power tasks (⏱)";
+      return `Booked time for ${ui.filterTag} tasks (⏱)`;
+    }
+    function loggedMinutesFor(task) {
+      return task.spent > 0 ? task.spent : task.duration;
     }
     function hasDayNote(iso) {
       return Boolean(dayNotes[iso] && dayNotes[iso].trim());
@@ -1144,7 +1152,7 @@
             <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${powerChipStyle}" title="Power tasks: ${POWER_GOAL} are mandatory each day">
               ⚡ ${isFuture ? `${powerPlanned}/${POWER_GOAL}` : `${powerDone}/${POWER_GOAL}`}
             </span>
-            <span class="flex items-center gap-1 whitespace-nowrap rounded-full bg-paper-300/70 px-2 py-0.5 text-[11px] font-bold text-ink-500" title="Total booked time from task estimates (⏱)">
+            <span class="flex items-center gap-1 whitespace-nowrap rounded-full bg-paper-300/70 px-2 py-0.5 text-[11px] font-bold text-ink-500" title="${escapeHTML(bookedTimeTitle())}">
               ⏱ ${fmtMinutes(bookedMin)}
               <span class="h-1 w-6 overflow-hidden rounded-full bg-paper-400/50" aria-hidden="true">
                 <span class="block h-full rounded-full bg-denim-500 transition-[width] duration-200" style="width:${bookedPct}%"></span>
@@ -1941,11 +1949,12 @@
 
     function renderHistoryDay() {
       const iso = ui.selectedHistoryDate;
-      const done = completedOn(iso);
-      const powerDone = powerCompletedCount(iso);
+      const done = completedOn(iso).filter(matchesFilter);
+      const powerDone = done.filter((t) => t.isPower).length;
+      const loggedMin = done.reduce((sum, t) => sum + loggedMinutesFor(t), 0);
       el("historyDayLabel").textContent = fullDate(iso);
       el("historyDaySummary").textContent = done.length
-        ? `${done.length} task${done.length === 1 ? "" : "s"} accomplished · ⚡ ${powerDone}/${POWER_GOAL} power`
+        ? `${done.length} task${done.length === 1 ? "" : "s"} accomplished · ⚡ ${powerDone}/${POWER_GOAL} power · ⏱ ${fmtMinutes(loggedMin)}`
         : "";
 
       const badge = el("historyPowerBadge");
@@ -1987,7 +1996,7 @@
       // sitting in the Incomplete tray for that exact day. A task rescheduled
       // to today/future no longer belongs to this day's history.
       const overdueHere = iso < todayISO()
-        ? tasks.filter((t) => !t.completed && t.date === iso)
+        ? tasks.filter((t) => !t.completed && t.date === iso && matchesFilter(t))
         : [];
 
       el("historyIncompleteSection").classList.toggle("hidden", overdueHere.length === 0);
