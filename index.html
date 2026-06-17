@@ -566,16 +566,23 @@
 
         <div>
           <label for="taskDurationSelect" class="mb-1.5 block text-xs font-semibold text-ink-500">Reserved time <span class="text-clay-500">*</span></label>
-          <select id="taskDurationSelect" required
-            class="modal-duration-select w-full cursor-pointer rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500">
-            <option value="" disabled selected hidden>Select reserved time</option>
-            <option value="5">⏱ 5 min</option>
-            <option value="10">⏱ 10 min</option>
-            <option value="15">⏱ 15 min</option>
-            <option value="30">⏱ 30 min</option>
-            <option value="60">⏱ 60 min</option>
-          </select>
-          <p id="taskDurationError" class="mt-1.5 hidden text-[11px] font-semibold text-clay-600">Please select a reserved time.</p>
+          <div class="flex gap-2">
+            <select id="taskDurationSelect"
+              class="modal-duration-select min-w-0 flex-1 cursor-pointer rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500">
+              <option value="" selected hidden>Quick pick</option>
+              <option value="5">⏱ 5 min</option>
+              <option value="10">⏱ 10 min</option>
+              <option value="15">⏱ 15 min</option>
+              <option value="30">⏱ 30 min</option>
+              <option value="60">⏱ 60 min</option>
+            </select>
+            <input id="taskDurationInput" type="text" inputmode="numeric" autocomplete="off" spellcheck="false"
+              placeholder="e.g. 45"
+              title="Enter minutes manually"
+              class="min-w-0 flex-1 rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+          <p class="mt-1.5 text-[11px] text-ink-300">Choose a preset or enter minutes manually.</p>
+          <p id="taskDurationError" class="mt-1.5 hidden text-[11px] font-semibold text-clay-600">Please select or enter a reserved time in minutes.</p>
         </div>
 
         <!-- Power toggle -->
@@ -1024,15 +1031,36 @@
     function bookedMinutesForDay(iso) {
       return tasks
         .filter((t) => t.date === iso && t.duration > 0 && matchesFilter(t) && (ui.showCompleted || !t.completed))
-        .reduce((sum, t) => sum + t.duration, 0);
+        .reduce((sum, t) => sum + loggedMinutesFor(t), 0);
     }
     function bookedTimeTitle() {
-      if (!ui.filterTag) return "Total booked time from task estimates (⏱)";
+      if (!ui.filterTag) return "Total booked time (estimates + logged focus time)";
       if (ui.filterTag === POWER_FILTER) return "Booked time for power tasks (⏱)";
       return `Booked time for ${ui.filterTag} tasks (⏱)`;
     }
     function loggedMinutesFor(task) {
       return task.spent > 0 ? task.spent : task.duration;
+    }
+    function taskTimeBubbleHTML(task) {
+      const mins = loggedMinutesFor(task);
+      if (mins <= 0) return "";
+      const label = fmtMinutes(mins);
+      const differs = task.spent > 0 && task.duration > 0 && task.spent !== task.duration;
+      const title = differs ? `Logged ${label} · estimated ${fmtMinutes(task.duration)}` : "";
+      return `<span class="card-meta-pill rounded-full bg-paper-200/70 font-semibold text-ink-500 ring-1 ring-ink-900/10"${title ? ` title="${escapeHTML(title)}"` : ""}>⏱ ${label}</span>`;
+    }
+    function taskTimeHistoryHTML(task) {
+      const actual = task.spent > 0 ? task.spent : 0;
+      const est = task.duration;
+      if (actual > 0) {
+        const actualStr = fmtMinutes(actual);
+        if (est > 0 && actual !== est) {
+          return `⏱ ${actualStr} logged · est. ${fmtMinutes(est)}`;
+        }
+        return `⏱ ${actualStr} logged`;
+      }
+      if (est > 0) return `⏱ ${fmtMinutes(est)} est.`;
+      return "no est.";
     }
     function hasDayNote(iso) {
       return Boolean(dayNotes[iso] && dayNotes[iso].trim());
@@ -1220,13 +1248,14 @@
 
       // Tags and the timer controls share one meta row to keep cards compact.
       const metaBits = task.tags.map((tag) => tagChipHTML(tag));
-      if (task.completed && task.duration > 0) {
-        metaBits.push(`<span class="card-meta-pill rounded-full bg-paper-200/70 font-semibold text-ink-500 ring-1 ring-ink-900/10">⏱ ${task.duration} min</span>`);
+      if (task.completed && loggedMinutesFor(task) > 0) {
+        metaBits.push(taskTimeBubbleHTML(task));
       } else if (!task.completed) {
         metaBits.push(`
           <select class="card-meta-pill durationSelect cursor-pointer rounded-full border-0 bg-paper-200/70 font-semibold text-ink-500 ring-1 ring-ink-900/10 focus:outline-none focus:ring-2 focus:ring-brand-500"
             aria-label="Reserved time for this task">
             ${TIMER_DURATIONS.map((m) => `<option value="${m}" ${task.duration === m ? "selected" : ""}>⏱ ${m} min</option>`).join("")}
+            ${task.duration > 0 && !TIMER_DURATIONS.includes(task.duration) ? `<option value="${task.duration}" selected>⏱ ${task.duration} min</option>` : ""}
           </select>
           <button type="button" title="Start countdown timer"
             class="card-meta-pill startTimerBtn ${task.duration ? "" : "hidden"} gap-1 rounded-full bg-moss-100 font-bold text-moss-700 ring-1 ring-moss-500/30 transition hover:bg-moss-200">
@@ -1978,7 +2007,7 @@
             <p class="break-words text-sm font-medium text-ink-700">${task.isPower ? "⚡ " : ""}${escapeHTML(task.title)}</p>
             <div class="mt-1 flex flex-wrap items-center gap-1.5">
               <span class="text-[11px] font-semibold text-ink-400">
-                planned ${task.time || "no time"} · ${task.duration > 0 ? `⏱ ${fmtMinutes(task.duration)}` : "no est."}
+                planned ${task.time || "no time"} · ${taskTimeHistoryHTML(task)}
               </span>
               ${task.tags.map((tag) => tagChipHTML(tag)).join("")}
             </div>
@@ -2034,6 +2063,7 @@
     const taskDateBtn = el("taskDateBtn");
     const taskTimeInput = el("taskTimeInput");
     const taskDurationSelect = el("taskDurationSelect");
+    const taskDurationInput = el("taskDurationInput");
     const taskPowerInput = el("taskPowerInput");
     const taskTagsInput = el("taskTagsInput");
     const tagLibraryChipsEl = el("tagLibraryChips");
@@ -2097,6 +2127,42 @@
       return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
     }
 
+    /** Minutes for reserved time. Returns null for empty, invalid for bad input. */
+    function parseDurationInput(raw) {
+      const s = String(raw).trim();
+      if (!s) return null;
+      if (!/^\d+$/.test(s)) return null;
+      const n = Number(s);
+      if (!Number.isFinite(n) || n < 1) return null;
+      return Math.round(n);
+    }
+
+    function setModalDuration(minutes) {
+      if (!minutes || minutes < 1) {
+        taskDurationSelect.value = "";
+        taskDurationInput.value = "";
+        return;
+      }
+      taskDurationInput.value = String(minutes);
+      taskDurationSelect.value = TIMER_DURATIONS.includes(minutes) ? String(minutes) : "";
+    }
+
+    function readModalDuration() {
+      const custom = parseDurationInput(taskDurationInput.value);
+      if (custom !== null) return custom;
+      const preset = Number(taskDurationSelect.value) || 0;
+      return preset > 0 ? preset : 0;
+    }
+
+    taskDurationSelect.addEventListener("change", () => {
+      const v = Number(taskDurationSelect.value) || 0;
+      taskDurationInput.value = v > 0 ? String(v) : "";
+    });
+    taskDurationInput.addEventListener("input", () => {
+      const parsed = parseDurationInput(taskDurationInput.value);
+      taskDurationSelect.value = parsed && TIMER_DURATIONS.includes(parsed) ? String(parsed) : "";
+    });
+
     function renderTagLibraryChips() {
       tagLibraryChipsEl.innerHTML = "";
       if (tagLibrary.length === 0) {
@@ -2156,7 +2222,7 @@
       taskDeleteBtn.classList.toggle("hidden", !task);
       taskTitleInput.value = task ? task.title : "";
       taskTimeInput.value = task ? task.time : "";
-      taskDurationSelect.value = task && task.duration > 0 ? String(task.duration) : "";
+      setModalDuration(task?.duration ?? 0);
       taskPowerInput.checked = task ? task.isPower : false;
       taskTagsInput.value = "";
       ui.modalSelectedTag = task?.tags?.[0] ?? null;
@@ -2194,10 +2260,16 @@
         taskTimeInput.select();
         return;
       }
-      const duration = Number(taskDurationSelect.value) || 0;
-      if (!TIMER_DURATIONS.includes(duration)) {
+      if (taskDurationInput.value.trim() && parseDurationInput(taskDurationInput.value) === null) {
         el("taskDurationError").classList.remove("hidden");
-        taskDurationSelect.focus();
+        taskDurationInput.focus();
+        taskDurationInput.select();
+        return;
+      }
+      const duration = readModalDuration();
+      if (duration < 1) {
+        el("taskDurationError").classList.remove("hidden");
+        (taskDurationInput.value.trim() ? taskDurationInput : taskDurationSelect).focus();
         return;
       }
       el("taskDurationError").classList.add("hidden");
