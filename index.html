@@ -142,6 +142,34 @@
       background-size: 0.625rem;
     }
 
+    .dash-chart-date {
+      height: 2rem;
+      border-radius: 0.625rem;
+      border: 1px solid rgb(38 33 25 / 0.1);
+      background-color: rgb(252 248 236 / 1);
+      padding: 0 0.625rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: rgb(38 33 25 / 1);
+    }
+    .dash-chart-date:focus {
+      outline: 2px solid rgb(124 157 135 / 0.45);
+      outline-offset: 1px;
+    }
+    #dashChartWrap {
+      touch-action: pan-y;
+    }
+    #dashChartSvg {
+      display: block;
+      width: 100%;
+      height: auto;
+      user-select: none;
+    }
+    #dashChartTooltip {
+      pointer-events: none;
+      z-index: 10;
+    }
+
     /* Header logo: optical center (antennae make the art feel top-heavy). */
     .app-logo {
       display: block;
@@ -402,21 +430,26 @@
         </div>
       </div>
 
-      <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <div>
           <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Tracked time</p>
           <p id="dashTotal" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
           <p id="dashMeta" class="mt-0.5 text-xs text-ink-400"></p>
         </div>
         <div>
-          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Avg completed per day</p>
-          <p id="dashAvg" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
-          <p id="dashAvgMeta" class="mt-0.5 text-xs text-ink-400"></p>
-        </div>
-        <div>
-          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Tasks created</p>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Completion rate</p>
           <p id="dashCreated" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
           <p id="dashCreatedMeta" class="mt-0.5 text-xs text-ink-400"></p>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Avg tasks created per day</p>
+          <p id="dashAvgCreated" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
+          <p id="dashAvgCreatedMeta" class="mt-0.5 text-xs text-ink-400"></p>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Avg tasks completed per day</p>
+          <p id="dashAvgCompleted" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
+          <p id="dashAvgCompletedMeta" class="mt-0.5 text-xs text-ink-400"></p>
         </div>
         <div>
           <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300" title="Logged time vs 8 productive hours per day">Efficiency</p>
@@ -425,6 +458,49 @@
           <div class="mt-2 h-2 overflow-hidden rounded-full bg-paper-300/60">
             <div id="dashEffBar" class="h-full rounded-full bg-moss-500 transition-[width] duration-200" style="width:0%"></div>
           </div>
+        </div>
+      </div>
+
+      <div id="dashChartSection" class="mt-6 rounded-xl border border-ink-900/10 bg-paper-100/60 p-4 sm:p-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="font-serif text-sm font-semibold text-ink-900">Performance over time</h3>
+            <p class="mt-0.5 text-xs text-ink-400">Daily trends — hover a point for details.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="flex items-center gap-1 rounded-xl bg-paper-300/50 p-1">
+              <button type="button" data-metric="activity" class="dashChartMetricBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">Activity</button>
+              <button type="button" data-metric="time" class="dashChartMetricBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">Time</button>
+              <button type="button" data-metric="efficiency" class="dashChartMetricBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">Efficiency</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <div class="flex flex-wrap items-center gap-1 rounded-xl bg-paper-300/50 p-1">
+            <button type="button" data-range="7" class="dashChartRangeBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">7d</button>
+            <button type="button" data-range="14" class="dashChartRangeBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">14d</button>
+            <button type="button" data-range="30" class="dashChartRangeBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">30d</button>
+            <button type="button" data-range="90" class="dashChartRangeBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">90d</button>
+            <button type="button" data-range="all" class="dashChartRangeBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">All</button>
+            <button type="button" data-range="custom" class="dashChartRangeBtn rounded-lg px-2.5 py-1.5 text-xs font-semibold transition">Custom</button>
+          </div>
+          <div id="dashChartCustomRange" class="hidden flex flex-wrap items-center gap-2">
+            <input id="dashChartFrom" type="date" class="dash-chart-date" aria-label="Chart start date" />
+            <span class="text-xs font-medium text-ink-400">to</span>
+            <input id="dashChartTo" type="date" class="dash-chart-date" aria-label="Chart end date" />
+          </div>
+        </div>
+
+        <div id="dashChartWrap" class="relative mt-4">
+          <svg id="dashChartSvg" viewBox="0 0 800 240" role="img" aria-label="Performance chart"></svg>
+          <div id="dashChartTooltip" class="hidden absolute left-0 top-0 min-w-[9rem] rounded-lg bg-ink-900 px-3 py-2 text-xs text-paper-50 shadow-lift"></div>
+        </div>
+
+        <div id="dashChartLegend" class="mt-3 flex flex-wrap gap-3 text-xs font-semibold text-ink-500"></div>
+
+        <div id="dashChartEmpty" class="mt-4 hidden rounded-xl border border-dashed border-ink-900/15 p-6 text-center text-sm text-ink-300">
+          No activity in this period.
         </div>
       </div>
 
@@ -674,6 +750,10 @@
       modalSelectedTag: null,   // single tag chosen in task modal
       dashScope: "completed",   // "completed" | "all"
       dashPowerOnly: false,     // dashboard: statistics for power tasks only
+      dashChartRange: "30",     // "7" | "14" | "30" | "90" | "all" | "custom"
+      dashChartFrom: "",
+      dashChartTo: "",
+      dashChartMetric: "activity", // "activity" | "time" | "efficiency"
       expandedDayNotes: null,   // Set<iso> — days with the note field open
       expandedHistoryNotes: null, // Set<iso> — history note panels expanded
     };
@@ -1759,6 +1839,307 @@
 
     // ---------- Render: dashboard ----------
     const DASH_BAR_COLORS = ["bg-denim-500", "bg-moss-500", "bg-brand-500", "bg-ochre-400", "bg-ink-400"];
+    const DASH_CHART_COLORS = {
+      created: "#8299B4",
+      completed: "#82A98D",
+      logged: "#7C9D87",
+      efficiency: "#A88543",
+      grid: "rgba(156, 144, 129, 0.18)",
+      axis: "#9C9081",
+      crosshair: "rgba(38, 33, 25, 0.12)",
+    };
+    const DASH_CHART = { w: 800, h: 240, pad: { t: 18, r: 20, b: 40, l: 44 } };
+    let dashChartPoints = [];
+    let dashChartHover = -1;
+    let dashChartContext = null;
+
+    function dashChartRangeBounds(inPowerScope) {
+      const today = todayISO();
+      if (ui.dashChartRange === "custom" && ui.dashChartFrom && ui.dashChartTo) {
+        const start = ui.dashChartFrom <= ui.dashChartTo ? ui.dashChartFrom : ui.dashChartTo;
+        const end = ui.dashChartFrom <= ui.dashChartTo ? ui.dashChartTo : ui.dashChartFrom;
+        return { start, end };
+      }
+      if (ui.dashChartRange === "all") {
+        const scoped = tasks.filter(inPowerScope);
+        const start = scoped.length
+          ? scoped.map((t) => toISO(new Date(t.createdAt))).reduce((a, b) => (a < b ? a : b))
+          : today;
+        return { start, end: today };
+      }
+      const span = Number(ui.dashChartRange) || 30;
+      return { start: addDaysISO(today, -(span - 1)), end: today };
+    }
+
+    function dashChartWeekStart(iso) {
+      const d = isoToDate(iso);
+      const day = d.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      return addDaysISO(iso, diff);
+    }
+
+    function dashChartBuildBuckets(start, end) {
+      const days = [];
+      for (let d = start; d <= end; d = addDaysISO(d, 1)) days.push(d);
+      if (days.length <= 45) {
+        return days.map((iso) => ({
+          key: iso,
+          days: [iso],
+          label: shortDate(iso),
+          title: fullDate(iso),
+        }));
+      }
+      const groups = new Map();
+      for (const iso of days) {
+        const wk = dashChartWeekStart(iso);
+        if (!groups.has(wk)) groups.set(wk, []);
+        groups.get(wk).push(iso);
+      }
+      return [...groups.entries()].map(([wk, bucketDays]) => ({
+        key: wk,
+        days: bucketDays,
+        label: shortDate(wk),
+        title: `${shortDate(bucketDays[0])} – ${shortDate(bucketDays[bucketDays.length - 1])}`,
+      }));
+    }
+
+    function dashChartBuildPoints(inPowerScope, minutesFor) {
+      const { start, end } = dashChartRangeBounds(inPowerScope);
+      const buckets = dashChartBuildBuckets(start, end);
+      return buckets.map((bucket) => {
+        const daySet = new Set(bucket.days);
+        let created = 0;
+        let completed = 0;
+        let logged = 0;
+        for (const t of tasks) {
+          if (!inPowerScope(t)) continue;
+          if (daySet.has(toISO(new Date(t.createdAt)))) created++;
+          if (t.completed && t.completedAt && daySet.has(toISO(new Date(t.completedAt)))) {
+            completed++;
+            if (ui.dashScope === "all" || t.completed) logged += minutesFor(t);
+          }
+        }
+        const efficiency = Math.min(100, Math.round((logged / PRODUCTIVE_MINUTES_PER_DAY) * 100));
+        return { ...bucket, created, completed, logged, efficiency };
+      });
+    }
+
+    function dashChartPlotWidth() {
+      return DASH_CHART.w - DASH_CHART.pad.l - DASH_CHART.pad.r;
+    }
+
+    function dashChartPlotHeight() {
+      return DASH_CHART.h - DASH_CHART.pad.t - DASH_CHART.pad.b;
+    }
+
+    function dashChartX(i, count) {
+      if (count <= 1) return DASH_CHART.pad.l + dashChartPlotWidth() / 2;
+      return DASH_CHART.pad.l + (i / (count - 1)) * dashChartPlotWidth();
+    }
+
+    function dashChartY(value, max) {
+      const safeMax = max > 0 ? max : 1;
+      return DASH_CHART.pad.t + dashChartPlotHeight() * (1 - value / safeMax);
+    }
+
+    function dashChartLinePath(points, key, max) {
+      if (!points.length) return "";
+      return points
+        .map((p, i) => `${i === 0 ? "M" : "L"}${dashChartX(i, points.length).toFixed(1)},${dashChartY(p[key], max).toFixed(1)}`)
+        .join(" ");
+    }
+
+    function dashChartAreaPath(points, key, max) {
+      if (!points.length) return "";
+      const base = DASH_CHART.pad.t + dashChartPlotHeight();
+      const line = points
+        .map((p, i) => `${i === 0 ? "M" : "L"}${dashChartX(i, points.length).toFixed(1)},${dashChartY(p[key], max).toFixed(1)}`)
+        .join(" ");
+      const lastX = dashChartX(points.length - 1, points.length).toFixed(1);
+      const firstX = dashChartX(0, points.length).toFixed(1);
+      return `${line} L${lastX},${base} L${firstX},${base} Z`;
+    }
+
+    function dashChartTooltipHTML(p) {
+      const rows = [
+        `<p class="font-serif text-[11px] font-semibold text-paper-50">${escapeHTML(p.title)}</p>`,
+        `<p class="mt-1 text-paper-50/80">${p.created} created · ${p.completed} completed</p>`,
+        `<p class="text-paper-50/80">⏱ ${fmtMinutes(p.logged)} · ${p.efficiency}% efficiency</p>`,
+      ];
+      return rows.join("");
+    }
+
+    function dashChartPositionTooltip(index) {
+      const wrap = el("dashChartWrap");
+      const tip = el("dashChartTooltip");
+      if (!wrap || !tip || index < 0 || !dashChartPoints[index]) {
+        tip.classList.add("hidden");
+        return;
+      }
+      const svg = el("dashChartSvg");
+      const rect = svg.getBoundingClientRect();
+      const xRatio = dashChartX(index, dashChartPoints.length) / DASH_CHART.w;
+      const left = xRatio * rect.width;
+      tip.innerHTML = dashChartTooltipHTML(dashChartPoints[index]);
+      tip.classList.remove("hidden");
+      const tipW = tip.offsetWidth || 144;
+      const maxLeft = Math.max(0, rect.width - tipW - 8);
+      tip.style.left = `${Math.min(Math.max(8, left - tipW / 2), maxLeft)}px`;
+      tip.style.top = "8px";
+    }
+
+    function renderDashChart(inPowerScope, minutesFor) {
+      for (const btn of document.querySelectorAll(".dashChartRangeBtn")) {
+        const active = btn.dataset.range === ui.dashChartRange;
+        btn.classList.toggle("bg-paper-50", active);
+        btn.classList.toggle("text-ink-900", active);
+        btn.classList.toggle("shadow-card", active);
+        btn.classList.toggle("text-ink-400", !active);
+      }
+      for (const btn of document.querySelectorAll(".dashChartMetricBtn")) {
+        const active = btn.dataset.metric === ui.dashChartMetric;
+        btn.classList.toggle("bg-paper-50", active);
+        btn.classList.toggle("text-ink-900", active);
+        btn.classList.toggle("shadow-card", active);
+        btn.classList.toggle("text-ink-400", !active);
+      }
+
+      const customEl = el("dashChartCustomRange");
+      customEl.classList.toggle("hidden", ui.dashChartRange !== "custom");
+      if (ui.dashChartRange === "custom") {
+        const fromInput = el("dashChartFrom");
+        const toInput = el("dashChartTo");
+        if (!ui.dashChartFrom) ui.dashChartFrom = addDaysISO(todayISO(), -29);
+        if (!ui.dashChartTo) ui.dashChartTo = todayISO();
+        fromInput.value = ui.dashChartFrom;
+        toInput.value = ui.dashChartTo;
+        fromInput.max = ui.dashChartTo;
+        toInput.min = ui.dashChartFrom;
+        toInput.max = todayISO();
+      }
+
+      dashChartPoints = dashChartBuildPoints(inPowerScope, minutesFor);
+      const hasData = dashChartPoints.some((p) => p.created || p.completed || p.logged);
+      el("dashChartEmpty").classList.toggle("hidden", hasData);
+      el("dashChartWrap").classList.toggle("hidden", !hasData);
+      el("dashChartLegend").classList.toggle("hidden", !hasData);
+
+      if (!hasData) {
+        el("dashChartSvg").innerHTML = "";
+        dashChartHover = -1;
+        return;
+      }
+
+      const metric = ui.dashChartMetric;
+      let maxVal = 1;
+      let yTicks = [0, 1];
+      let yUnit = "";
+      if (metric === "activity") {
+        maxVal = Math.max(1, ...dashChartPoints.map((p) => Math.max(p.created, p.completed)));
+        const step = Math.max(1, Math.ceil(maxVal / 4));
+        maxVal = step * 4;
+        yTicks = Array.from({ length: 5 }, (_, i) => i * step);
+        yUnit = "tasks";
+      } else if (metric === "time") {
+        maxVal = Math.max(1, ...dashChartPoints.map((p) => p.logged));
+        const step = Math.max(30, Math.ceil(maxVal / 4 / 30) * 30);
+        maxVal = step * 4;
+        yTicks = Array.from({ length: 5 }, (_, i) => i * step);
+        yUnit = "minutes";
+      } else {
+        maxVal = 100;
+        yTicks = [0, 25, 50, 75, 100];
+        yUnit = "%";
+      }
+
+      const gridLines = yTicks
+        .map((tick) => {
+          const y = dashChartY(tick, maxVal).toFixed(1);
+          const label = metric === "time" ? fmtMinutes(tick) : (metric === "efficiency" ? `${tick}%` : String(tick));
+          return `
+            <line x1="${DASH_CHART.pad.l}" y1="${y}" x2="${DASH_CHART.w - DASH_CHART.pad.r}" y2="${y}" stroke="${DASH_CHART_COLORS.grid}" stroke-width="1" />
+            <text x="${DASH_CHART.pad.l - 8}" y="${y}" text-anchor="end" dominant-baseline="middle" fill="${DASH_CHART_COLORS.axis}" font-size="10" font-family="Inter, sans-serif">${label}</text>
+          `;
+        })
+        .join("");
+
+      const labelEvery = Math.max(1, Math.ceil(dashChartPoints.length / 7));
+      const xLabels = dashChartPoints
+        .map((p, i) => {
+          if (i % labelEvery !== 0 && i !== dashChartPoints.length - 1) return "";
+          const x = dashChartX(i, dashChartPoints.length).toFixed(1);
+          return `<text x="${x}" y="${DASH_CHART.h - 12}" text-anchor="middle" fill="${DASH_CHART_COLORS.axis}" font-size="10" font-family="Inter, sans-serif">${escapeHTML(p.label)}</text>`;
+        })
+        .join("");
+
+      let seriesSVG = "";
+      let legendHTML = "";
+      if (metric === "activity") {
+        seriesSVG = `
+          <path d="${dashChartLinePath(dashChartPoints, "created", maxVal)}" fill="none" stroke="${DASH_CHART_COLORS.created}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="${dashChartLinePath(dashChartPoints, "completed", maxVal)}" fill="none" stroke="${DASH_CHART_COLORS.completed}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+        `;
+        legendHTML = `
+          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.created}"></span>Created</span>
+          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.completed}"></span>Completed</span>
+        `;
+      } else if (metric === "time") {
+        seriesSVG = `
+          <path d="${dashChartAreaPath(dashChartPoints, "logged", maxVal)}" fill="${DASH_CHART_COLORS.logged}" fill-opacity="0.18" stroke="none" />
+          <path d="${dashChartLinePath(dashChartPoints, "logged", maxVal)}" fill="none" stroke="${DASH_CHART_COLORS.logged}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+        `;
+        legendHTML = `<span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.logged}"></span>Logged time</span>`;
+      } else {
+        seriesSVG = `
+          <line x1="${DASH_CHART.pad.l}" y1="${dashChartY(100, maxVal).toFixed(1)}" x2="${DASH_CHART.w - DASH_CHART.pad.r}" y2="${dashChartY(100, maxVal).toFixed(1)}" stroke="${DASH_CHART_COLORS.grid}" stroke-width="1" stroke-dasharray="4 4" />
+          <path d="${dashChartLinePath(dashChartPoints, "efficiency", maxVal)}" fill="none" stroke="${DASH_CHART_COLORS.efficiency}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+        `;
+        legendHTML = `<span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.efficiency}"></span>Daily efficiency (8h basis)</span>`;
+      }
+
+      const hoverIdx = dashChartHover >= 0 ? dashChartHover : -1;
+      const hoverDots = hoverIdx >= 0 ? (() => {
+        const p = dashChartPoints[hoverIdx];
+        const x = dashChartX(hoverIdx, dashChartPoints.length).toFixed(1);
+        const keys = metric === "activity"
+          ? [["created", DASH_CHART_COLORS.created], ["completed", DASH_CHART_COLORS.completed]]
+          : metric === "time"
+            ? [["logged", DASH_CHART_COLORS.logged]]
+            : [["efficiency", DASH_CHART_COLORS.efficiency]];
+        return keys.map(([key, color]) =>
+          `<circle cx="${x}" cy="${dashChartY(p[key], maxVal).toFixed(1)}" r="4.5" fill="${color}" stroke="#FCF8EC" stroke-width="2" />`
+        ).join("");
+      })() : "";
+
+      const crosshair = hoverIdx >= 0
+        ? `<line x1="${dashChartX(hoverIdx, dashChartPoints.length).toFixed(1)}" y1="${DASH_CHART.pad.t}" x2="${dashChartX(hoverIdx, dashChartPoints.length).toFixed(1)}" y2="${DASH_CHART.pad.t + dashChartPlotHeight()}" stroke="${DASH_CHART_COLORS.crosshair}" stroke-width="1.5" />`
+        : "";
+
+      el("dashChartSvg").innerHTML = `
+        <rect x="0" y="0" width="${DASH_CHART.w}" height="${DASH_CHART.h}" fill="transparent" />
+        ${gridLines}
+        ${seriesSVG}
+        ${crosshair}
+        ${hoverDots}
+        ${xLabels}
+        <rect id="dashChartHit" x="${DASH_CHART.pad.l}" y="${DASH_CHART.pad.t}" width="${dashChartPlotWidth()}" height="${dashChartPlotHeight()}" fill="transparent" />
+      `;
+
+      el("dashChartLegend").innerHTML = legendHTML + `<span class="text-ink-300">· ${yUnit}</span>`;
+      dashChartPositionTooltip(hoverIdx);
+    }
+
+    function dashChartPointerIndex(clientX) {
+      const svg = el("dashChartSvg");
+      if (!svg || !dashChartPoints.length) return -1;
+      const rect = svg.getBoundingClientRect();
+      const x = ((clientX - rect.left) / rect.width) * DASH_CHART.w;
+      const plotLeft = DASH_CHART.pad.l;
+      const plotRight = DASH_CHART.w - DASH_CHART.pad.r;
+      if (x < plotLeft || x > plotRight) return -1;
+      const ratio = (x - plotLeft) / (plotRight - plotLeft);
+      return Math.max(0, Math.min(dashChartPoints.length - 1, Math.round(ratio * (dashChartPoints.length - 1))));
+    }
 
     function renderDashboard() {
       for (const btn of document.querySelectorAll(".dashScopeBtn")) {
@@ -1782,34 +2163,40 @@
         (t) => t.duration > 0 && inPowerScope(t) && (ui.dashScope === "all" || t.completed)
       );
 
-      // Average completed per day: total completions divided by the number of
-      // days from the first completion to today (inclusive).
-      const completedTasks = tasks.filter((t) => t.completed && t.completedAt && inPowerScope(t));
-      if (completedTasks.length) {
-        const firstDay = completedTasks
-          .map((t) => toISO(new Date(t.completedAt)))
-          .reduce((a, b) => (a < b ? a : b));
-        const spanDays = Math.max(
-          1,
-          Math.round((isoToDate(todayISO()) - isoToDate(firstDay)) / 86_400_000) + 1
-        );
-        const avg = completedTasks.length / spanDays;
-        el("dashAvg").textContent = String(Math.round(avg * 10) / 10);
-        el("dashAvgMeta").textContent =
-          `${completedTasks.length} completed over ${spanDays} day${spanDays === 1 ? "" : "s"}` +
+      const createdScope = tasks.filter(inPowerScope);
+      const createdDone = createdScope.filter((t) => t.completed).length;
+      const activeCreationDays = new Set(
+        createdScope.map((t) => toISO(new Date(t.createdAt)))
+      ).size;
+
+      el("dashCreated").textContent =
+        createdScope.length > 0
+          ? Math.round((createdDone / createdScope.length) * 100) + "%"
+          : "—";
+      el("dashCreatedMeta").textContent =
+        `${createdScope.length} created · ${createdDone} completed` +
+        (ui.dashPowerOnly ? " · ⚡ power only" : "");
+
+      const completedCount = createdDone;
+
+      if (activeCreationDays > 0) {
+        const avgCreated = createdScope.length / activeCreationDays;
+        el("dashAvgCreated").textContent = String(Math.round(avgCreated * 10) / 10);
+        el("dashAvgCreatedMeta").textContent =
+          `${createdScope.length} created over ${activeCreationDays} active day${activeCreationDays === 1 ? "" : "s"}` +
+          (ui.dashPowerOnly ? " · ⚡ power only" : "");
+
+        const avgCompleted = completedCount / activeCreationDays;
+        el("dashAvgCompleted").textContent = String(Math.round(avgCompleted * 10) / 10);
+        el("dashAvgCompletedMeta").textContent =
+          `${completedCount} completed over ${activeCreationDays} active day${activeCreationDays === 1 ? "" : "s"}` +
           (ui.dashPowerOnly ? " · ⚡ power only" : "");
       } else {
-        el("dashAvg").textContent = "—";
-        el("dashAvgMeta").textContent = ui.dashPowerOnly ? "no power tasks completed yet" : "no completions yet";
+        el("dashAvgCreated").textContent = "—";
+        el("dashAvgCreatedMeta").textContent = ui.dashPowerOnly ? "no power tasks yet" : "no tasks yet";
+        el("dashAvgCompleted").textContent = "—";
+        el("dashAvgCompletedMeta").textContent = ui.dashPowerOnly ? "no power tasks yet" : "no tasks yet";
       }
-
-      // Total tasks created (respects the power-only toggle).
-      const created = tasks.filter(inPowerScope);
-      const createdDone = created.filter((t) => t.completed).length;
-      el("dashCreated").textContent = String(created.length);
-      el("dashCreatedMeta").textContent =
-        `${createdDone} completed · ${created.length - createdDone} open` +
-        (ui.dashPowerOnly ? " · ⚡ power only" : "");
 
       // Completed tasks finished through the focus timer count their actual
       // elapsed time; everything else falls back to the planned period.
@@ -1825,7 +2212,6 @@
       // Efficiency: logged time (completed work only) measured against
       // 8 productive hours per day, counted from the first day on which a
       // task was created through today.
-      const createdScope = tasks.filter(inPowerScope);
       if (createdScope.length) {
         const firstCreated = createdScope
           .map((t) => toISO(new Date(t.createdAt)))
@@ -1877,6 +2263,9 @@
         `;
         rowsEl.appendChild(li);
       });
+
+      renderDashChart(inPowerScope, minutesFor);
+      dashChartContext = { inPowerScope, minutesFor };
     }
 
     // ---------- Render: history ----------
@@ -2688,6 +3077,66 @@
       ui.dashPowerOnly = !ui.dashPowerOnly;
       renderDashboard();
     });
+
+    for (const btn of document.querySelectorAll(".dashChartRangeBtn")) {
+      btn.addEventListener("click", () => {
+        ui.dashChartRange = btn.dataset.range;
+        renderDashboard();
+      });
+    }
+
+    for (const btn of document.querySelectorAll(".dashChartMetricBtn")) {
+      btn.addEventListener("click", () => {
+        ui.dashChartMetric = btn.dataset.metric;
+        renderDashboard();
+      });
+    }
+
+    el("dashChartFrom").addEventListener("change", (e) => {
+      ui.dashChartFrom = e.target.value;
+      ui.dashChartRange = "custom";
+      renderDashboard();
+    });
+
+    el("dashChartTo").addEventListener("change", (e) => {
+      ui.dashChartTo = e.target.value;
+      ui.dashChartRange = "custom";
+      renderDashboard();
+    });
+
+    el("dashChartWrap").addEventListener("mousemove", (e) => {
+      if (!dashChartContext) return;
+      const idx = dashChartPointerIndex(e.clientX);
+      if (idx !== dashChartHover) {
+        dashChartHover = idx;
+        renderDashChart(dashChartContext.inPowerScope, dashChartContext.minutesFor);
+      }
+    });
+
+    el("dashChartWrap").addEventListener("mouseleave", () => {
+      if (dashChartHover === -1 || !dashChartContext) return;
+      dashChartHover = -1;
+      renderDashChart(dashChartContext.inPowerScope, dashChartContext.minutesFor);
+    });
+
+    el("dashChartWrap").addEventListener("touchstart", (e) => {
+      if (!dashChartContext) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      dashChartHover = dashChartPointerIndex(touch.clientX);
+      renderDashChart(dashChartContext.inPowerScope, dashChartContext.minutesFor);
+    }, { passive: true });
+
+    el("dashChartWrap").addEventListener("touchmove", (e) => {
+      if (!dashChartContext) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      const idx = dashChartPointerIndex(touch.clientX);
+      if (idx !== dashChartHover) {
+        dashChartHover = idx;
+        renderDashChart(dashChartContext.inPowerScope, dashChartContext.minutesFor);
+      }
+    }, { passive: true });
 
     // ---------- Render root ----------
     function updateAuthGate() {
