@@ -142,6 +142,21 @@
       background-size: 0.625rem;
     }
 
+    /* Arrow-banner for unplanned gaps between timed tasks (08:00–17:00). */
+    .free-time-bubble {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.1rem 0.45rem 0.1rem 0.35rem;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: 0.01em;
+      color: #8A6C35;
+      background: #F4E5BC;
+      border: 1px solid rgb(234 210 146 / 0.85);
+      clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%);
+    }
+
     .dash-chart-date {
       height: 2rem;
       border-radius: 0.625rem;
@@ -360,7 +375,7 @@
             <span class="inline-block h-2 w-2 rounded-full bg-moss-500"></span> power day — 5 power tasks completed
           </p>
           <p class="flex items-center gap-2">
-            <span class="inline-block h-2 w-2 rounded-full bg-denim-500"></span> days with completed tasks · history is read-only
+            <span class="inline-block h-2 w-2 rounded-full bg-denim-500"></span> days with completed tasks
           </p>
           <p class="flex items-center gap-2">
             <svg class="shrink-0 text-ink-300" width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -397,7 +412,7 @@
         <p id="historyDaySummary" class="mt-0.5 text-sm text-ink-400"></p>
         <ul id="historyDayList" class="mt-4 space-y-2"></ul>
         <div id="historyDayEmpty" class="mt-4 hidden rounded-xl border border-dashed border-ink-900/15 p-6 text-center text-sm text-ink-300">
-          No completed tasks on this day.
+          No tasks linked to this day.
         </div>
 
         <!-- Forgot to tick something off? Backfill it here. -->
@@ -699,6 +714,28 @@
     </div>
   </div>
 
+  <!-- ===================== Delete confirm ===================== -->
+  <div id="deleteConfirmModal" class="fixed inset-0 z-[90] hidden items-center justify-center px-4" role="dialog" aria-modal="true" aria-labelledby="deleteConfirmHeading">
+    <div id="deleteConfirmBackdrop" class="absolute inset-0 bg-ink-900/40 backdrop-blur-sm"></div>
+
+    <div class="relative w-full max-w-sm rounded-2xl bg-paper-50 p-6 shadow-lift">
+      <h3 id="deleteConfirmHeading" class="font-serif text-lg font-semibold tracking-tight text-ink-900">Delete this task?</h3>
+      <p id="deleteConfirmTitle" class="mt-2 break-words text-sm font-semibold text-ink-700"></p>
+      <p id="deleteConfirmDetails" class="mt-1 text-xs text-ink-400"></p>
+      <p id="deleteConfirmImpact" class="mt-3 text-sm text-ink-500"></p>
+      <div class="mt-5 flex items-center justify-end gap-2">
+        <button id="deleteConfirmCancelBtn" type="button"
+          class="rounded-xl px-3.5 py-2 text-sm font-semibold text-ink-400 transition hover:bg-paper-200">
+          Cancel
+        </button>
+        <button id="deleteConfirmBtn" type="button"
+          class="rounded-xl bg-clay-500 px-4 py-2 text-sm font-semibold text-paper-50 shadow-card transition hover:bg-clay-600 active:scale-[0.98]">
+          Delete task
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script>
     "use strict";
 
@@ -719,6 +756,8 @@
     const POWER_FILTER = "__POWER__";
     const TIMER_DURATIONS = [5, 10, 15, 30, 60]; // minutes
     const PRODUCTIVE_MINUTES_PER_DAY = 8 * 60;   // measurable productive hours per day
+    const DAY_SCHEDULE_START = 8 * 60;           // 08:00 — day planning window
+    const DAY_SCHEDULE_END = 17 * 60;            // 17:00 — day planning window
 
     /**
      * @typedef {{
@@ -1102,6 +1141,45 @@
         .filter((t) => t.completed && t.completedAt && toISO(new Date(t.completedAt)) === iso)
         .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
     }
+    function taskMetricDays(task) {
+      const days = new Set([toISO(new Date(task.createdAt)), task.date]);
+      if (task.completed && task.completedAt) days.add(toISO(new Date(task.completedAt)));
+      return [...days].sort();
+    }
+    function historyTasksForDay(iso) {
+      const seen = new Map();
+      const add = (task, role) => {
+        if (!matchesFilter(task)) return;
+        const existing = seen.get(task.id);
+        if (existing) {
+          if (!existing.roles.includes(role)) existing.roles.push(role);
+          return;
+        }
+        seen.set(task.id, { task, roles: [role] });
+      };
+      for (const t of completedOn(iso)) add(t, "completed");
+      for (const t of tasks) {
+        if (t.completed) continue;
+        if (t.date === iso) add(t, "scheduled");
+        if (toISO(new Date(t.createdAt)) === iso) add(t, "created");
+      }
+      return [...seen.values()];
+    }
+    function historyRoleLabel(roles) {
+      const parts = [];
+      if (roles.includes("completed")) parts.push("completed this day");
+      if (roles.includes("scheduled")) parts.push("scheduled this day");
+      if (roles.includes("created")) parts.push("counts as created in dashboard");
+      return parts.join(" · ");
+    }
+    function pruneDayNotesAfterDelete(removedTask) {
+      for (const iso of taskMetricDays(removedTask)) {
+        if (!tasks.some((t) => taskMetricDays(t).includes(iso)) && dayNotes[iso]) {
+          delete dayNotes[iso];
+          saveDayNotes();
+        }
+      }
+    }
     function powerCompletedCount(iso) {
       return completedOn(iso).filter((t) => t.isPower).length;
     }
@@ -1152,6 +1230,21 @@
         return m ? `${h}h ${m}m` : `${h}h`;
       }
       return `${min}m`;
+    }
+    function timeToMinutes(time) {
+      const [h, m] = time.split(":").map(Number);
+      return h * 60 + m;
+    }
+    function buildGapBubble(minutes) {
+      if (minutes <= 0) return null;
+      const bubble = document.createElement("div");
+      bubble.className = "pointer-events-none flex justify-start py-0.5";
+      bubble.innerHTML = `
+        <span class="free-time-bubble" title="Unplanned time between tasks">
+          ${fmtMinutes(minutes)} free
+        </span>
+      `;
+      return bubble;
     }
 
     // ---------- Elements ----------
@@ -1275,7 +1368,39 @@
       `;
 
       const listEl = col.querySelector(".taskList");
-      for (const task of dayTasks) listEl.appendChild(buildCard(task));
+      let lastTimedEnd = DAY_SCHEDULE_START;
+      let sawTimed = false;
+      let scheduleAnchored = false;
+      let endGapShown = false;
+
+      const appendGap = (mins) => {
+        const gap = buildGapBubble(mins);
+        if (gap) listEl.appendChild(gap);
+      };
+
+      for (const task of dayTasks) {
+        if (!task.time) {
+          if (!endGapShown && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
+            appendGap(DAY_SCHEDULE_END - lastTimedEnd);
+            endGapShown = true;
+          }
+          listEl.appendChild(buildCard(task));
+          continue;
+        }
+
+        sawTimed = true;
+        const start = timeToMinutes(task.time);
+        if (start > lastTimedEnd) appendGap(start - lastTimedEnd);
+        listEl.appendChild(buildCard(task));
+        if (task.duration > 0) {
+          lastTimedEnd = Math.max(lastTimedEnd, start + task.duration);
+          scheduleAnchored = true;
+        }
+      }
+
+      if (!endGapShown && sawTimed && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
+        appendGap(DAY_SCHEDULE_END - lastTimedEnd);
+      }
 
       if (dayTasks.length === 0) {
         const empty = document.createElement("p");
@@ -2367,13 +2492,16 @@
 
     function renderHistoryDay() {
       const iso = ui.selectedHistoryDate;
+      const dayTasks = historyTasksForDay(iso);
       const done = completedOn(iso).filter(matchesFilter);
       const powerDone = done.filter((t) => t.isPower).length;
       const loggedMin = done.reduce((sum, t) => sum + loggedMinutesFor(t), 0);
       el("historyDayLabel").textContent = fullDate(iso);
       el("historyDaySummary").textContent = done.length
         ? `${done.length} task${done.length === 1 ? "" : "s"} accomplished · ⚡ ${powerDone}/${POWER_GOAL} power · ⏱ ${fmtMinutes(loggedMin)}`
-        : "";
+        : dayTasks.length
+          ? `${dayTasks.length} linked task${dayTasks.length === 1 ? "" : "s"} · nothing completed yet`
+          : "";
 
       const badge = el("historyPowerBadge");
       badge.classList.toggle("hidden", !isPowerDay(iso));
@@ -2381,67 +2509,64 @@
 
       const list = el("historyDayList");
       list.innerHTML = "";
-      el("historyDayEmpty").classList.toggle("hidden", done.length > 0);
+      el("historyDayEmpty").classList.toggle("hidden", dayTasks.length > 0);
+      el("historyIncompleteSection").classList.add("hidden");
 
-      for (const task of done) {
+      for (const { task, roles } of dayTasks) {
+        const isCompleted = roles.includes("completed");
         const li = document.createElement("li");
-        li.className = "flex items-start gap-3 rounded-xl bg-paper-200/60 p-3 ring-1 ring-ink-900/10";
+        li.className =
+          "group flex items-start gap-3 rounded-xl p-3 ring-1 " +
+          (isCompleted ? "bg-paper-200/60 ring-ink-900/10" : "bg-paper-50 ring-ochre-200");
+
+        const statusIcon = isCompleted
+          ? `<span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-moss-100 text-moss-600">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>`
+          : `<input type="checkbox" aria-label="Mark task completed on this day"
+              class="histCheck mt-0.5 h-[18px] w-[18px] shrink-0 cursor-pointer rounded-md border-ochre-400 text-moss-600 focus:ring-moss-500" />`;
+
+        const metaLine = isCompleted
+          ? `<span class="text-[11px] font-semibold text-ink-400">
+              planned ${task.time || "no time"} · ${taskTimeHistoryHTML(task)}
+            </span>`
+          : `<span class="text-[11px] font-semibold text-ochre-600/80">${historyRoleLabel(roles)}</span>`;
+
         li.innerHTML = `
-          <span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-moss-100 text-moss-600">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </span>
+          ${statusIcon}
           <div class="min-w-0 flex-1">
             <p class="break-words text-sm font-medium text-ink-700">${task.isPower ? "⚡ " : ""}${escapeHTML(task.title)}</p>
             <div class="mt-1 flex flex-wrap items-center gap-1.5">
-              <span class="text-[11px] font-semibold text-ink-400">
-                planned ${task.time || "no time"} · ${taskTimeHistoryHTML(task)}
-              </span>
+              ${metaLine}
               ${task.tags.map((tag) => tagChipHTML(tag)).join("")}
             </div>
           </div>
+          <button type="button" title="Delete task" aria-label="Delete task"
+            class="histDeleteBtn mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-300 opacity-100 transition hover:bg-clay-50 hover:text-clay-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
         `;
+
+        const histCheck = li.querySelector(".histCheck");
+        if (histCheck) {
+          histCheck.addEventListener("change", () => {
+            task.completed = true;
+            task.completedAt = isoToDate(iso).getTime() + 12 * 3_600_000;
+            saveTasks();
+            renderHistory();
+            renderDashboard();
+          });
+        }
+
+        li.querySelector(".histDeleteBtn").addEventListener("click", () => openDeleteConfirm(task));
         list.appendChild(li);
       }
 
-      renderHistoryIncomplete(iso);
       renderHistoryDayNote(iso);
-    }
-
-    function renderHistoryIncomplete(iso) {
-      // Only past days can be backfilled, and only with tasks that are still
-      // sitting in the Incomplete tray for that exact day. A task rescheduled
-      // to today/future no longer belongs to this day's history.
-      const overdueHere = iso < todayISO()
-        ? tasks.filter((t) => !t.completed && t.date === iso && matchesFilter(t))
-        : [];
-
-      el("historyIncompleteSection").classList.toggle("hidden", overdueHere.length === 0);
-      const list = el("historyIncompleteList");
-      list.innerHTML = "";
-
-      for (const task of overdueHere) {
-        const li = document.createElement("li");
-        li.className = "flex items-start gap-3 rounded-xl bg-paper-50 p-3 ring-1 ring-ochre-200";
-        li.innerHTML = `
-          <input type="checkbox" aria-label="Mark task completed on this day"
-            class="histCheck mt-0.5 h-[18px] w-[18px] shrink-0 cursor-pointer rounded-md border-ochre-400 text-moss-600 focus:ring-moss-500" />
-          <div class="min-w-0 flex-1">
-            <p class="break-words text-sm font-medium text-ink-700">${task.isPower ? "⚡ " : ""}${escapeHTML(task.title)}</p>
-            ${task.tags.length ? `<div class="mt-1 flex flex-wrap items-center gap-1.5">${task.tags.map((tag) => tagChipHTML(tag)).join("")}</div>` : ""}
-          </div>
-        `;
-        li.querySelector(".histCheck").addEventListener("change", () => {
-          task.completed = true;
-          // Record the completion on the viewed day (noon, to be safely
-          // inside the day regardless of timezone quirks).
-          task.completedAt = isoToDate(iso).getTime() + 12 * 3_600_000;
-          saveTasks();
-          renderHistory();
-        });
-        list.appendChild(li);
-      }
     }
 
     // ---------- Task modal ----------
@@ -2457,6 +2582,46 @@
     const taskTagsInput = el("taskTagsInput");
     const tagLibraryChipsEl = el("tagLibraryChips");
     const taskDeleteBtn = el("taskDeleteBtn");
+    const deleteConfirmModal = el("deleteConfirmModal");
+    let pendingDeleteTaskId = null;
+
+    async function deleteTaskById(taskId) {
+      const removed = tasks.find((t) => t.id === taskId);
+      if (!removed) return;
+      tasks = tasks.filter((t) => t.id !== taskId);
+      pruneDayNotesAfterDelete(removed);
+      saveTasks();
+      if (sbClient && syncState.user) await pushToCloud();
+      render();
+      renderDashboard();
+    }
+
+    function openDeleteConfirm(task) {
+      pendingDeleteTaskId = task.id;
+      const createdDay = fullDate(toISO(new Date(task.createdAt)));
+      const completedDay = task.completedAt
+        ? fullDate(toISO(new Date(task.completedAt)))
+        : null;
+      const scheduledDay = fullDate(task.date);
+      const tagLabel = task.tags.length ? task.tags.join(", ") : "Untagged";
+      const detailParts = [`Created ${createdDay}`];
+      if (scheduledDay !== createdDay) detailParts.push(`Scheduled ${scheduledDay}`);
+      if (completedDay) detailParts.push(`Completed ${completedDay}`);
+      detailParts.push(tagLabel);
+      el("deleteConfirmTitle").textContent = task.isPower ? `⚡ ${task.title}` : task.title;
+      el("deleteConfirmDetails").textContent = detailParts.join(" · ");
+      el("deleteConfirmImpact").textContent =
+        "This permanently removes the task from history, dashboard stats (created, completed, and time tracking), and cannot be undone.";
+      deleteConfirmModal.classList.remove("hidden");
+      deleteConfirmModal.classList.add("flex");
+      el("deleteConfirmCancelBtn").focus();
+    }
+
+    function closeDeleteConfirm() {
+      pendingDeleteTaskId = null;
+      deleteConfirmModal.classList.add("hidden");
+      deleteConfirmModal.classList.remove("flex");
+    }
 
     function modalDateLabel(iso) {
       const d = isoToDate(iso);
@@ -2701,11 +2866,20 @@
 
     taskDeleteBtn.addEventListener("click", () => {
       if (!ui.editingTaskId) return;
-      tasks = tasks.filter((t) => t.id !== ui.editingTaskId);
-      saveTasks();
+      const task = tasks.find((t) => t.id === ui.editingTaskId);
+      if (!task) return;
       closeTaskModal();
-      render();
+      openDeleteConfirm(task);
     });
+
+    el("deleteConfirmBtn").addEventListener("click", async () => {
+      if (!pendingDeleteTaskId) return;
+      const id = pendingDeleteTaskId;
+      closeDeleteConfirm();
+      await deleteTaskById(id);
+    });
+    el("deleteConfirmCancelBtn").addEventListener("click", closeDeleteConfirm);
+    el("deleteConfirmBackdrop").addEventListener("click", closeDeleteConfirm);
 
     taskTimeInput.addEventListener("blur", () => {
       const parsed = parseTimeInput(taskTimeInput.value);
@@ -2717,6 +2891,7 @@
     el("taskModalBackdrop").addEventListener("click", closeTaskModal);
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
+      if (!deleteConfirmModal.classList.contains("hidden")) { closeDeleteConfirm(); return; }
       if (!taskModal.classList.contains("hidden")) closeTaskModal();
       const syncModal = el("syncModal");
       if (!syncModal.classList.contains("hidden")) {
