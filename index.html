@@ -1130,6 +1130,15 @@
         .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
       return [...timed, ...untimed];
     }
+    /** Full day timeline for gaps — includes completed tasks even when hidden on the board. */
+    function tasksForDaySchedule(iso) {
+      const list = tasks.filter((t) => t.date === iso && matchesFilter(t));
+      const timed = list.filter((t) => t.time)
+        .sort((a, b) => a.time.localeCompare(b.time) || a.order - b.order);
+      const untimed = list.filter((t) => !t.time)
+        .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+      return [...timed, ...untimed];
+    }
     function incompleteTrayTasks() {
       const t = todayISO();
       return tasks
@@ -1199,6 +1208,14 @@
     function loggedMinutesFor(task) {
       return task.spent > 0 ? task.spent : task.duration;
     }
+    /** Minutes a timed task occupies on the day schedule (logged time when completed). */
+    function scheduledBlockMinutes(task) {
+      if (task.completed) {
+        const logged = loggedMinutesFor(task);
+        if (logged > 0) return logged;
+      }
+      return task.duration > 0 ? task.duration : 0;
+    }
     function taskTimeBubbleHTML(task) {
       const mins = loggedMinutesFor(task);
       if (mins <= 0) return "";
@@ -1235,6 +1252,10 @@
       const [h, m] = time.split(":").map(Number);
       return h * 60 + m;
     }
+    function resizeDayNoteInput(textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
     function buildGapBubble(minutes) {
       if (minutes <= 0) return null;
       const bubble = document.createElement("div");
@@ -1245,6 +1266,65 @@
         </span>
       `;
       return bubble;
+    }
+    function dayScheduleItems(scheduleTasks, visibleTaskIds) {
+      const items = [];
+      let lastTimedEnd = DAY_SCHEDULE_START;
+      let sawTimed = false;
+      let scheduleAnchored = false;
+      let endGapShown = false;
+
+      const pushGap = (mins) => {
+        if (mins > 0) items.push({ type: "gap", minutes: mins });
+      };
+
+      for (const task of scheduleTasks) {
+        if (!task.time) {
+          if (!endGapShown && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
+            pushGap(DAY_SCHEDULE_END - lastTimedEnd);
+            endGapShown = true;
+          }
+          if (visibleTaskIds.has(task.id)) items.push({ type: "task", task });
+          continue;
+        }
+        sawTimed = true;
+        const start = timeToMinutes(task.time);
+        if (start > lastTimedEnd) pushGap(start - lastTimedEnd);
+        if (visibleTaskIds.has(task.id)) items.push({ type: "task", task });
+        const block = scheduledBlockMinutes(task);
+        if (block > 0) {
+          lastTimedEnd = Math.max(lastTimedEnd, start + block);
+          scheduleAnchored = true;
+        }
+      }
+
+      if (!endGapShown && sawTimed && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
+        pushGap(DAY_SCHEDULE_END - lastTimedEnd);
+      }
+
+      return items;
+    }
+    function freeMinutesFromSchedule(items) {
+      return items
+        .filter((i) => i.type === "gap")
+        .reduce((sum, i) => sum + i.minutes, 0);
+    }
+    /** Timed tasks whose start falls before the previous timed task ends. */
+    function overlappingTimedTaskIds(scheduleTasks) {
+      const ids = new Set();
+      let prevTimed = null;
+
+      for (const task of scheduleTasks) {
+        if (!task.time) continue;
+        const prevBlock = prevTimed ? scheduledBlockMinutes(prevTimed) : 0;
+        if (prevTimed && prevBlock > 0) {
+          const prevEnd = timeToMinutes(prevTimed.time) + prevBlock;
+          if (timeToMinutes(task.time) < prevEnd) ids.add(task.id);
+        }
+        prevTimed = task;
+      }
+
+      return ids;
     }
 
     // ---------- Elements ----------
@@ -1299,6 +1379,8 @@
       const isToday = iso === t;
       const isFuture = iso > t;
       const dayTasks = tasksForDay(iso);
+      const scheduleTasks = tasksForDaySchedule(iso);
+      const visibleTaskIds = new Set(dayTasks.map((t) => t.id));
       const remaining = dayTasks.filter((x) => !x.completed).length;
 
       // Power progress: for today/past count actual completions; for future
@@ -1308,6 +1390,9 @@
       const powerAchieved = !isFuture && isPowerDay(iso);
       const bookedMin = bookedMinutesForDay(iso);
       const bookedPct = Math.min(100, Math.round((bookedMin / PRODUCTIVE_MINUTES_PER_DAY) * 100));
+      const scheduleItems = dayScheduleItems(scheduleTasks, visibleTaskIds);
+      const freeMin = freeMinutesFromSchedule(scheduleItems);
+      const overlappingIds = overlappingTimedTaskIds(scheduleTasks);
       if (!ui.expandedDayNotes) ui.expandedDayNotes = new Set();
       const noteExpanded = ui.expandedDayNotes.has(iso);
 
@@ -1359,47 +1444,23 @@
                 <span class="block h-full rounded-full bg-denim-500 transition-[width] duration-200" style="width:${bookedPct}%"></span>
               </span>
             </span>
+            ${freeMin > 0 ? `<span class="free-time-bubble" title="Total unplanned time (08:00–17:00)">${fmtMinutes(freeMin)} free</span>` : ""}
           </div>
         </header>
         <div class="dayNotePanel ${noteExpanded ? "" : "hidden"} mb-2 px-1">
-          <textarea class="dayNoteInput w-full resize-none rounded-xl border-0 bg-paper-200/60 px-3 py-2 text-xs text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" rows="2" placeholder="Day note…">${escapeHTML(dayNotes[iso] || "")}</textarea>
+          <textarea class="dayNoteInput w-full resize-none overflow-y-hidden rounded-xl border-0 bg-paper-200/60 px-3 py-2 text-xs text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" rows="1" placeholder="Day note…">${escapeHTML(dayNotes[iso] || "")}</textarea>
         </div>
         <div class="taskList flex flex-1 flex-col gap-2 rounded-xl p-0.5 transition" data-dropzone="day" data-date="${iso}"></div>
       `;
 
       const listEl = col.querySelector(".taskList");
-      let lastTimedEnd = DAY_SCHEDULE_START;
-      let sawTimed = false;
-      let scheduleAnchored = false;
-      let endGapShown = false;
-
-      const appendGap = (mins) => {
-        const gap = buildGapBubble(mins);
-        if (gap) listEl.appendChild(gap);
-      };
-
-      for (const task of dayTasks) {
-        if (!task.time) {
-          if (!endGapShown && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
-            appendGap(DAY_SCHEDULE_END - lastTimedEnd);
-            endGapShown = true;
-          }
-          listEl.appendChild(buildCard(task));
-          continue;
+      for (const item of scheduleItems) {
+        if (item.type === "gap") {
+          const gap = buildGapBubble(item.minutes);
+          if (gap) listEl.appendChild(gap);
+        } else {
+          listEl.appendChild(buildCard(item.task, overlappingIds));
         }
-
-        sawTimed = true;
-        const start = timeToMinutes(task.time);
-        if (start > lastTimedEnd) appendGap(start - lastTimedEnd);
-        listEl.appendChild(buildCard(task));
-        if (task.duration > 0) {
-          lastTimedEnd = Math.max(lastTimedEnd, start + task.duration);
-          scheduleAnchored = true;
-        }
-      }
-
-      if (!endGapShown && sawTimed && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
-        appendGap(DAY_SCHEDULE_END - lastTimedEnd);
       }
 
       if (dayTasks.length === 0) {
@@ -1422,6 +1483,7 @@
         else {
           ui.expandedDayNotes.add(iso);
           noteInput.focus();
+          resizeDayNoteInput(noteInput);
         }
         noteToggle.setAttribute("aria-expanded", String(!nowHidden));
         noteChevron.classList.toggle("rotate-180", !nowHidden);
@@ -1432,13 +1494,15 @@
         if (value) dayNotes[iso] = value;
         else delete dayNotes[iso];
         saveDayNotes();
+        resizeDayNoteInput(noteInput);
       });
+      if (noteExpanded) resizeDayNoteInput(noteInput);
 
       attachDropzone(listEl);
       return col;
     }
 
-    function buildCard(task) {
+    function buildCard(task, overlappingIds = null) {
       const card = document.createElement("article");
       card.dataset.taskId = task.id;
       card.draggable = !task.completed;
@@ -1447,8 +1511,12 @@
         (task.isPower ? "ring-ochre-400/60 " : "ring-ink-900/10 ") +
         (task.completed ? "opacity-60" : "cursor-grab active:cursor-grabbing");
 
+      const taskOverlaps = overlappingIds && overlappingIds.has(task.id);
+      const timeColor = taskOverlaps
+        ? "text-red-600"
+        : task.completed ? "text-ink-300" : "text-ink-400";
       const timePrefix = task.time
-        ? `<span class="mr-1.5 font-semibold tabular-nums ${task.completed ? "text-ink-300" : "text-ink-400"}">${escapeHTML(task.time)}</span>`
+        ? `<span class="mr-1.5 font-semibold tabular-nums ${timeColor}"${taskOverlaps ? ' title="Overlaps with the previous timed task"' : ""}>${escapeHTML(task.time)}</span>`
         : "";
 
       // Tags and the timer controls share one meta row to keep cards compact.
