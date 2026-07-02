@@ -1273,15 +1273,16 @@
       let sawTimed = false;
       let scheduleAnchored = false;
       let endGapShown = false;
+      const hasIncompleteTimed = scheduleTasks.some((t) => t.time && !t.completed);
 
-      const pushGap = (mins) => {
-        if (mins > 0) items.push({ type: "gap", minutes: mins });
+      const pushGap = (mins, relevant) => {
+        if (mins > 0 && relevant) items.push({ type: "gap", minutes: mins });
       };
 
       for (const task of scheduleTasks) {
         if (!task.time) {
           if (!endGapShown && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
-            pushGap(DAY_SCHEDULE_END - lastTimedEnd);
+            pushGap(DAY_SCHEDULE_END - lastTimedEnd, hasIncompleteTimed);
             endGapShown = true;
           }
           if (visibleTaskIds.has(task.id)) items.push({ type: "task", task });
@@ -1289,7 +1290,7 @@
         }
         sawTimed = true;
         const start = timeToMinutes(task.time);
-        if (start > lastTimedEnd) pushGap(start - lastTimedEnd);
+        if (start > lastTimedEnd) pushGap(start - lastTimedEnd, !task.completed);
         if (visibleTaskIds.has(task.id)) items.push({ type: "task", task });
         const block = scheduledBlockMinutes(task);
         if (block > 0) {
@@ -1299,7 +1300,7 @@
       }
 
       if (!endGapShown && sawTimed && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
-        pushGap(DAY_SCHEDULE_END - lastTimedEnd);
+        pushGap(DAY_SCHEDULE_END - lastTimedEnd, hasIncompleteTimed);
       }
 
       return items;
