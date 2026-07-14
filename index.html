@@ -815,6 +815,10 @@
           class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-clay-600 ring-1 ring-clay-200 transition hover:bg-clay-50">
           Delete entire series
         </button>
+        <button id="deleteConfirmAllCopiesBtn" type="button"
+          class="hidden w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-clay-600 ring-1 ring-clay-200 transition hover:bg-clay-50">
+          Delete all copies
+        </button>
         <button id="deleteConfirmRecurringCancelBtn" type="button"
           class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-ink-400 transition hover:bg-paper-200">
           Cancel
@@ -970,6 +974,129 @@
 
     const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+    /** Fingerprint for detecting duplicate task series (orphaned recurring copies). */
+    function seriesFingerprint(task) {
+      const tags = [...(task.tags || [])].sort().join("\x1f");
+      return [
+        String(task.title || "").trim().toLowerCase(),
+        String(task.time || ""),
+        tags,
+        String(task.duration || 0),
+        task.isPower ? "1" : "0",
+      ].join("\x1e");
+    }
+
+    /** All tasks belonging to the same series (by recurrenceId or fingerprint). */
+    function tasksInSeries(task) {
+      if (task.recurrenceId) {
+        return tasks.filter((t) => t.recurrenceId === task.recurrenceId);
+      }
+      const fp = seriesFingerprint(task);
+      return tasks.filter((t) => seriesFingerprint(t) === fp);
+    }
+
+    function isOrphanSeries(task) {
+      if (task.recurrenceId) return false;
+      const dates = new Set(tasksInSeries(task).map((t) => t.date));
+      return dates.size >= 2;
+    }
+
+    /** Guess repeat rule from a set of occurrence dates. */
+    function inferRecurrenceFromDates(dates) {
+      const sorted = [...new Set(dates)].sort();
+      if (sorted.length < 2) return { freq: "daily" };
+
+      const dows = sorted.map((iso) => isoToDate(iso).getDay());
+      const uniqueDows = [...new Set(dows)].sort((a, b) => a - b);
+      if (uniqueDows.length <= 4 && sorted.every((iso) => uniqueDows.includes(isoToDate(iso).getDay()))) {
+        const gaps = [];
+        for (let i = 1; i < sorted.length; i++) {
+          const a = isoToDate(sorted[i - 1]);
+          const b = isoToDate(sorted[i]);
+          gaps.push(Math.round((b - a) / 86400000));
+        }
+        if (gaps.every((g) => g === 7) || gaps.every((g) => g % 7 === 0)) {
+          return { freq: "weekly", daysOfWeek: uniqueDows };
+        }
+      }
+
+      const allLastDay = sorted.every((iso) => {
+        const d = isoToDate(iso);
+        return d.getDate() === new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      });
+      if (allLastDay) return { freq: "monthly_last" };
+
+      const doms = sorted.map((iso) => isoToDate(iso).getDate());
+      const uniqueDom = [...new Set(doms)];
+      if (uniqueDom.length === 1) return { freq: "monthly", dayOfMonth: uniqueDom[0] };
+
+      return { freq: "daily" };
+    }
+
+    /** Rebuild templates when tasks still reference a missing series id. */
+    function reconstructMissingTemplates() {
+      let changed = false;
+      const ids = [...new Set(tasks.map((t) => t.recurrenceId).filter(Boolean))];
+      for (const rid of ids) {
+        if (recurringTemplates.find((t) => t.id === rid)) continue;
+        const instances = tasks.filter((t) => t.recurrenceId === rid);
+        if (!instances.length) continue;
+        const dates = [...new Set(instances.map((t) => t.recurrenceDate || t.date))].sort();
+        const sample = instances[0];
+        recurringTemplates.push({
+          id: rid,
+          title: sample.title,
+          time: sample.time,
+          tags: [...sample.tags],
+          isPower: sample.isPower,
+          duration: sample.duration,
+          recurrence: inferRecurrenceFromDates(dates),
+          startDate: dates[0],
+          enabled: true,
+          createdAt: sample.createdAt,
+        });
+        changed = true;
+      }
+      return changed;
+    }
+
+    /** Link duplicate copies (same title/time/tags) back into a managed recurring series. */
+    function recoverOrphanSeries() {
+      let changed = false;
+      const groups = new Map();
+      for (const t of tasks) {
+        if (t.recurrenceId) continue;
+        const fp = seriesFingerprint(t);
+        if (!groups.has(fp)) groups.set(fp, []);
+        groups.get(fp).push(t);
+      }
+
+      for (const group of groups.values()) {
+        const dates = [...new Set(group.map((t) => t.date))].sort();
+        if (dates.length < 2) continue;
+        const sample = group[0];
+        const tmpl = {
+          id: uid(),
+          title: sample.title,
+          time: sample.time,
+          tags: [...sample.tags],
+          isPower: sample.isPower,
+          duration: sample.duration,
+          recurrence: inferRecurrenceFromDates(dates),
+          startDate: dates[0],
+          enabled: true,
+          createdAt: Math.min(...group.map((t) => t.createdAt)),
+        };
+        recurringTemplates.push(tmpl);
+        for (const t of group) {
+          t.recurrenceId = tmpl.id;
+          t.recurrenceDate = t.date;
+        }
+        changed = true;
+      }
+      return changed;
+    }
+
     /** @param {RecurringTemplate} tmpl @param {string} iso */
     function matchesRecurrence(tmpl, iso) {
       if (iso < tmpl.startDate) return false;
@@ -1017,6 +1144,33 @@
         if (t.recurrenceId && t.date < start) start = t.date;
       }
       return { start, end };
+    }
+
+    /** Remove incomplete recurring instances that don't match their template's schedule. */
+    function pruneInvalidRecurringInstances(specificTmplId = null) {
+      const removed = [];
+      tasks = tasks.filter((t) => {
+        if (!t.recurrenceId) return true;
+        if (specificTmplId && t.recurrenceId !== specificTmplId) return true;
+        const tmpl = recurringTemplates.find((x) => x.id === t.recurrenceId);
+        if (!tmpl || !tmpl.enabled) return true;
+        const occDate = t.recurrenceDate || t.date;
+        if (matchesRecurrence(tmpl, occDate)) return true;
+        if (t.completed) return true; // keep completed history
+        removed.push(t);
+        return false;
+      });
+      for (const task of removed) pruneDayNotesAfterDelete(task);
+      return removed.length > 0;
+    }
+
+    /** Drop invalid instances, then materialize any missing ones. */
+    function reconcileRecurringInstances() {
+      let changed = reconstructMissingTemplates();
+      if (recoverOrphanSeries()) changed = true;
+      if (pruneInvalidRecurringInstances()) changed = true;
+      if (ensureRecurringInstances()) changed = true;
+      return changed;
     }
 
     /** Materialize recurring templates into task instances for the visible range. */
@@ -1092,6 +1246,50 @@
       tasks = tasks.filter((t) => t.recurrenceId !== recurrenceId);
       for (const task of removed) pruneDayNotesAfterDelete(task);
       saveRecurringTemplates();
+    }
+
+    function stopRecurringSeries(recurrenceId, keepTaskId = null) {
+      recurringTemplates = recurringTemplates.filter((t) => t.id !== recurrenceId);
+      const removed = [];
+      tasks = tasks.filter((t) => {
+        if (t.recurrenceId !== recurrenceId) return true;
+        if (keepTaskId && t.id === keepTaskId) {
+          delete t.recurrenceId;
+          delete t.recurrenceDate;
+          return true;
+        }
+        if (t.completed) return true;
+        removed.push(t);
+        return false;
+      });
+      for (const task of removed) pruneDayNotesAfterDelete(task);
+      saveRecurringTemplates();
+    }
+
+    function stopOrphanSeries(task) {
+      const fp = seriesFingerprint(task);
+      const removed = [];
+      tasks = tasks.filter((t) => {
+        if (seriesFingerprint(t) !== fp) return true;
+        if (t.id === task.id) return true;
+        if (t.completed) return true;
+        removed.push(t);
+        return false;
+      });
+      for (const t of removed) pruneDayNotesAfterDelete(t);
+      delete task.recurrenceId;
+      delete task.recurrenceDate;
+    }
+
+    function deleteEntireSeries(task) {
+      if (task.recurrenceId) {
+        deleteRecurringSeries(task.recurrenceId);
+        return;
+      }
+      const fp = seriesFingerprint(task);
+      const removed = tasks.filter((t) => seriesFingerprint(t) === fp);
+      tasks = tasks.filter((t) => seriesFingerprint(t) !== fp);
+      for (const t of removed) pruneDayNotesAfterDelete(t);
     }
 
     function detachRecurringSeries(recurrenceId) {
@@ -1868,7 +2066,7 @@
       const timePrefix = task.time
         ? `<span class="mr-1.5 font-semibold tabular-nums ${timeColor}"${taskOverlaps && !behindSchedule ? ' title="Overlaps with the previous timed task"' : ""}>${escapeHTML(task.time)}</span>`
         : "";
-      const repeatPrefix = task.recurrenceId
+      const repeatPrefix = task.recurrenceId || isOrphanSeries(task)
         ? `<span class="mr-1 ${behindSchedule ? "text-ink-300" : "text-brand-600"}" title="Recurring task">↻</span>`
         : "";
 
@@ -3160,6 +3358,14 @@
       renderDashboard();
     }
 
+    async function deleteEntireSeriesByTask(task) {
+      deleteEntireSeries(task);
+      saveTasks();
+      if (sbClient && syncState.user) await pushToCloud();
+      render();
+      renderDashboard();
+    }
+
     async function deleteRecurringSeriesById(recurrenceId) {
       deleteRecurringSeries(recurrenceId);
       saveTasks();
@@ -3171,7 +3377,9 @@
     function updateRecurrencePanelVisibility() {
       const enabled = taskRepeatInput.checked;
       taskRecurrencePanel.classList.toggle("hidden", !enabled);
-      if (taskDateLabel) taskDateLabel.textContent = enabled ? "Starts on" : "Day";
+      if (taskDateLabel) {
+        taskDateLabel.textContent = enabled ? "Series starts from" : "Day";
+      }
       updateRecurrenceFreqPanels();
       updateRecurrenceSummary();
     }
@@ -3202,7 +3410,17 @@
         return;
       }
       const rule = readRecurrenceRuleFromModal();
-      taskRecurrenceSummary.textContent = rule ? describeRecurrence(rule) : "";
+      if (!rule) {
+        taskRecurrenceSummary.textContent = "";
+        return;
+      }
+      const startIso = /^\d{4}-\d{2}-\d{2}$/.test(taskDateInput.value) ? taskDateInput.value : todayISO();
+      const startLabel = modalDateLabel(startIso);
+      let schedule = describeRecurrence(rule);
+      if (rule.freq === "monthly_last") {
+        schedule = "the last day of each month";
+      }
+      taskRecurrenceSummary.textContent = `Appears on ${schedule} starting from ${startLabel}.`;
     }
 
     /** @returns {RecurrenceRule|null} */
@@ -3266,6 +3484,9 @@
     function openDeleteConfirm(task) {
       pendingDeleteTaskId = task.id;
       pendingDeleteRecurrenceId = task.recurrenceId || null;
+      const series = tasksInSeries(task);
+      const seriesCount = series.length;
+      const isRecurring = Boolean(pendingDeleteRecurrenceId) || isOrphanSeries(task);
       const createdDay = fullDate(toISO(new Date(task.createdAt)));
       const completedDay = task.completedAt
         ? fullDate(toISO(new Date(task.completedAt)))
@@ -3280,15 +3501,26 @@
         ? recurringTemplates.find((t) => t.id === pendingDeleteRecurrenceId)
         : null;
       if (tmpl) detailParts.push(describeRecurrence(tmpl.recurrence));
+      else if (isRecurring && seriesCount >= 2) detailParts.push(`${seriesCount} copies found`);
       el("deleteConfirmTitle").textContent = task.isPower ? `⚡ ${task.title}` : task.title;
       el("deleteConfirmDetails").textContent = detailParts.join(" · ");
-      const isRecurring = Boolean(pendingDeleteRecurrenceId);
       el("deleteConfirmHeading").textContent = isRecurring ? "Delete recurring task?" : "Delete this task?";
       el("deleteConfirmImpact").textContent = isRecurring
-        ? "Remove just this day's occurrence, or delete the entire repeating series and all its future and past instances."
+        ? `This task has ${seriesCount} scheduled copies. Remove just this one, or delete the entire series in one step.`
         : "This permanently removes the task from history, dashboard stats (created, completed, and time tracking), and cannot be undone.";
       el("deleteConfirmRecurringActions").classList.toggle("hidden", !isRecurring);
       el("deleteConfirmStandardActions").classList.toggle("hidden", isRecurring);
+      const seriesBtn = el("deleteConfirmSeriesBtn");
+      const allCopiesBtn = el("deleteConfirmAllCopiesBtn");
+      if (pendingDeleteRecurrenceId) {
+        seriesBtn.classList.remove("hidden");
+        allCopiesBtn.classList.add("hidden");
+        seriesBtn.textContent = `Delete entire series (${seriesCount} copies)`;
+      } else if (isRecurring) {
+        seriesBtn.classList.add("hidden");
+        allCopiesBtn.classList.remove("hidden");
+        allCopiesBtn.textContent = `Delete all ${seriesCount} copies`;
+      }
       deleteConfirmModal.classList.remove("hidden");
       deleteConfirmModal.classList.add("flex");
       (isRecurring ? el("deleteConfirmOccurrenceBtn") : el("deleteConfirmCancelBtn")).focus();
@@ -3467,9 +3699,19 @@
       // keeps showing its past date until rescheduled, but can't be moved
       // further into the past.
       taskDateInput.min = todayISO();
-      taskDateInput.value = task ? task.date : (presetDate || addDaysISO(todayISO(), ui.dayOffset));
+      taskDateInput.value = tmpl
+        ? tmpl.startDate
+        : (task ? task.date : (presetDate || addDaysISO(todayISO(), ui.dayOffset)));
       setRecurrenceModalFromTemplate(tmpl);
-      if (!tmpl && !task) {
+      if (!tmpl && task && isOrphanSeries(task)) {
+        const dates = [...new Set(tasksInSeries(task).map((t) => t.date))].sort();
+        const inferred = inferRecurrenceFromDates(dates);
+        taskRepeatInput.checked = true;
+        taskRecurrenceFreq.value = inferred.freq;
+        if (inferred.freq === "weekly") setSelectedRecurrenceDays(inferred.daysOfWeek || []);
+        if (inferred.freq === "monthly") taskRecurrenceDayOfMonth.value = String(inferred.dayOfMonth || 1);
+        updateRecurrencePanelVisibility();
+      } else if (!tmpl && !task) {
         setSelectedRecurrenceDays([isoToDate(taskDateInput.value).getDay()]);
       }
       syncDateDisplay();
@@ -3541,7 +3783,7 @@
       if (ui.editingTaskId) {
         const task = tasks.find((t) => t.id === ui.editingTaskId);
         if (task) {
-          if (task.date !== date) task.order = tasksForDay(date).length;
+          if (!recurrence && task.date !== date) task.order = tasksForDay(date).length;
 
           if (recurrence) {
             let tmpl = ui.editingRecurrenceId
@@ -3549,35 +3791,26 @@
               : null;
             if (tmpl) {
               updateRecurringTemplate(tmpl, { title, time, tags, isPower, duration, startDate: date, recurrence });
-              pruneFutureRecurringInstances(tmpl);
               syncRecurringInstancesFromTemplate(tmpl);
             } else {
               tmpl = createRecurringTemplate({ title, time, tags, isPower, duration, startDate: date, recurrence });
+              if (task.recurrenceId !== tmpl.id) {
+                Object.assign(task, { recurrenceId: tmpl.id });
+              }
             }
-            Object.assign(task, {
-              title, date, time, tags, isPower, duration,
-              recurrenceId: tmpl.id,
-              recurrenceDate: date,
-            });
+            Object.assign(task, { title, time, tags, isPower, duration });
           } else if (ui.editingRecurrenceId) {
-            detachRecurringSeries(ui.editingRecurrenceId);
+            stopRecurringSeries(ui.editingRecurrenceId, task.id);
             Object.assign(task, { title, date, time, tags, isPower, duration });
-            delete task.recurrenceId;
-            delete task.recurrenceDate;
+          } else if (isOrphanSeries(task)) {
+            stopOrphanSeries(task);
+            Object.assign(task, { title, date, time, tags, isPower, duration });
           } else {
             Object.assign(task, { title, date, time, tags, isPower, duration });
           }
         }
       } else if (recurrence) {
-        const tmpl = createRecurringTemplate({ title, time, tags, isPower, duration, startDate: date, recurrence });
-        tasks.push({
-          id: uid(), title, date, time, tags, isPower, duration, spent: 0,
-          completed: false, completedAt: null,
-          createdAt: Date.now(),
-          order: tasksForDay(date).length,
-          recurrenceId: tmpl.id,
-          recurrenceDate: date,
-        });
+        createRecurringTemplate({ title, time, tags, isPower, duration, startDate: date, recurrence });
       } else {
         tasks.push({
           id: uid(), title, date, time, tags, isPower, duration, spent: 0,
@@ -3587,6 +3820,7 @@
         });
       }
 
+      if (recurrence || recurringTemplates.length) reconcileRecurringInstances();
       saveTasks();
       closeTaskModal();
       render();
@@ -3618,6 +3852,13 @@
       closeDeleteConfirm();
       await deleteRecurringSeriesById(recurrenceId);
     });
+    el("deleteConfirmAllCopiesBtn").addEventListener("click", async () => {
+      if (!pendingDeleteTaskId) return;
+      const task = tasks.find((t) => t.id === pendingDeleteTaskId);
+      if (!task) return;
+      closeDeleteConfirm();
+      await deleteEntireSeriesByTask(task);
+    });
     el("deleteConfirmCancelBtn").addEventListener("click", closeDeleteConfirm);
     el("deleteConfirmRecurringCancelBtn").addEventListener("click", closeDeleteConfirm);
     el("deleteConfirmBackdrop").addEventListener("click", closeDeleteConfirm);
@@ -3640,8 +3881,10 @@
       updateRecurrenceSummary();
     });
     taskDateInput.addEventListener("change", () => {
-      if (taskRepeatInput.checked && taskRecurrenceFreq.value === "weekly" && !getSelectedRecurrenceDays().length) {
-        setSelectedRecurrenceDays([isoToDate(taskDateInput.value || todayISO()).getDay()]);
+      if (taskRepeatInput.checked) {
+        if (taskRecurrenceFreq.value === "weekly" && !getSelectedRecurrenceDays().length) {
+          setSelectedRecurrenceDays([isoToDate(taskDateInput.value || todayISO()).getDay()]);
+        }
         updateRecurrenceSummary();
       }
     });
@@ -4108,7 +4351,7 @@
 
     function render() {
       updateAuthGate();
-      if (ensureRecurringInstances()) saveTasks();
+      if (reconcileRecurringInstances()) saveTasks();
       for (const tab of document.querySelectorAll(".viewTab")) {
         const active = tab.dataset.view === ui.view;
         tab.classList.toggle("bg-paper-50", active);
