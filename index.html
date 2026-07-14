@@ -457,7 +457,7 @@
           <p id="dashCreatedMeta" class="mt-0.5 text-xs text-ink-400"></p>
         </div>
         <div>
-          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Avg tasks created per day</p>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-ink-300">Avg tasks available per day</p>
           <p id="dashAvgCreated" class="mt-1 font-serif text-4xl font-semibold text-ink-900"></p>
           <p id="dashAvgCreatedMeta" class="mt-0.5 text-xs text-ink-400"></p>
         </div>
@@ -2039,16 +2039,18 @@
     // ---------- Render: dashboard ----------
     const DASH_BAR_COLORS = ["bg-denim-500", "bg-moss-500", "bg-brand-500", "bg-ochre-400", "bg-ink-400"];
     const DASH_CHART_COLORS = {
-      created: "#8299B4",
+      available: "#8299B4",
       completed: "#82A98D",
       logged: "#7C9D87",
       efficiency: "#A88543",
+      power: "#B8B0A3",
       grid: "rgba(156, 144, 129, 0.18)",
       axis: "#9C9081",
       crosshair: "rgba(38, 33, 25, 0.12)",
     };
     const DASH_CHART = { w: 800, h: 240, pad: { t: 18, r: 20, b: 40, l: 44 } };
     let dashChartPoints = [];
+    let dashChartPowerPoints = [];
     let dashChartHover = -1;
     let dashChartContext = null;
 
@@ -2068,6 +2070,20 @@
       }
       const span = Number(ui.dashChartRange) || 30;
       return { start: addDaysISO(today, -(span - 1)), end: today };
+    }
+
+    function dashInPeriod(iso, start, end) {
+      return iso >= start && iso <= end;
+    }
+
+    function dashPeriodDays(start, end) {
+      return Math.max(1, Math.round((isoToDate(end) - isoToDate(start)) / 86_400_000) + 1);
+    }
+
+    function dashPeriodLabel(start, end) {
+      if (ui.dashChartRange === "custom") return `${shortDate(start)} – ${shortDate(end)}`;
+      if (ui.dashChartRange === "all") return "all time";
+      return `last ${dashPeriodDays(start, end)} days`;
     }
 
     function dashChartWeekStart(iso) {
@@ -2102,25 +2118,82 @@
       }));
     }
 
-    function dashChartBuildPoints(inPowerScope, minutesFor) {
-      const { start, end } = dashChartRangeBounds(inPowerScope);
+    function dashChartBuildPoints(taskFilter, minutesFor, start, end) {
       const buckets = dashChartBuildBuckets(start, end);
       return buckets.map((bucket) => {
         const daySet = new Set(bucket.days);
-        let created = 0;
+        let available = 0;
         let completed = 0;
         let logged = 0;
         for (const t of tasks) {
-          if (!inPowerScope(t)) continue;
-          if (daySet.has(toISO(new Date(t.createdAt)))) created++;
+          if (!taskFilter(t)) continue;
+          if (daySet.has(t.date)) available++;
           if (t.completed && t.completedAt && daySet.has(toISO(new Date(t.completedAt)))) {
             completed++;
-            if (ui.dashScope === "all" || t.completed) logged += minutesFor(t);
+            logged += minutesFor(t);
           }
         }
         const efficiency = Math.min(100, Math.round((logged / PRODUCTIVE_MINUTES_PER_DAY) * 100));
-        return { ...bucket, created, completed, logged, efficiency };
+        return { ...bucket, available, completed, logged, efficiency };
       });
+    }
+
+    function dashChartMetricKeys(metric) {
+      if (metric === "activity") return ["available", "completed"];
+      if (metric === "time") return ["logged"];
+      return ["efficiency"];
+    }
+
+    function dashChartMaxForPoints(points, metric) {
+      if (metric === "activity") {
+        return Math.max(1, ...points.map((p) => Math.max(p.available, p.completed)));
+      }
+      if (metric === "time") {
+        return Math.max(1, ...points.map((p) => p.logged));
+      }
+      return 100;
+    }
+
+    function dashChartPowerLinesSVG(points, metric, maxVal) {
+      if (ui.dashPowerOnly || !points.length || metric === "activity") return "";
+      const attrs =
+        `fill="none" stroke="${DASH_CHART_COLORS.power}" stroke-width="2" stroke-dasharray="6 4" stroke-linecap="round" stroke-linejoin="round"`;
+      return dashChartMetricKeys(metric)
+        .map((key) => {
+          const path = dashChartLinePath(points, key, maxVal);
+          return path ? `<path d="${path}" ${attrs} />` : "";
+        })
+        .join("");
+    }
+
+    function dashChartIsDaily(points) {
+      return points.length > 0 && points.every((p) => p.days.length === 1);
+    }
+
+    function dashChartPowerDayHit(powerPoint) {
+      return powerPoint.completed >= POWER_GOAL;
+    }
+
+    function dashChartPowerStreakSVG(powerPoints, points) {
+      if (ui.dashPowerOnly || !powerPoints.length || !dashChartIsDaily(points)) return "";
+      const color = DASH_CHART_COLORS.power;
+      const topY = (DASH_CHART.pad.t + 6).toFixed(1);
+      const count = points.length;
+      const isHit = (i) => dashChartPowerDayHit(powerPoints[i]);
+      let lines = "";
+      let dots = "";
+      for (let i = 0; i < count; i++) {
+        if (!isHit(i)) continue;
+        const x = dashChartX(i, count).toFixed(1);
+        if (i > 0 && isHit(i - 1)) {
+          const x0 = dashChartX(i - 1, count).toFixed(1);
+          lines +=
+            `<line x1="${x0}" y1="${topY}" x2="${x}" y2="${topY}" stroke="${color}" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="round" />`;
+        }
+        dots +=
+          `<circle cx="${x}" cy="${topY}" r="4.5" fill="${color}" stroke="#FCF8EC" stroke-width="2" />`;
+      }
+      return lines + dots;
     }
 
     function dashChartPlotWidth() {
@@ -2141,6 +2214,30 @@
       return DASH_CHART.pad.t + dashChartPlotHeight() * (1 - value / safeMax);
     }
 
+    function dashChartDotKeys(metric) {
+      if (metric === "activity") {
+        return [["available", DASH_CHART_COLORS.available], ["completed", DASH_CHART_COLORS.completed]];
+      }
+      if (metric === "time") return [["logged", DASH_CHART_COLORS.logged]];
+      return [["efficiency", DASH_CHART_COLORS.efficiency]];
+    }
+
+    function dashChartSeriesDots(points, metric, maxVal, singleDayOffset) {
+      const keys = dashChartDotKeys(metric);
+      let html = "";
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const baseX = dashChartX(i, points.length);
+        keys.forEach(([key, color], ki) => {
+          let x = baseX;
+          if (singleDayOffset && keys.length > 1) x += ki === 0 ? -12 : 12;
+          html +=
+            `<circle cx="${x.toFixed(1)}" cy="${dashChartY(p[key], maxVal).toFixed(1)}" r="5.5" fill="${color}" stroke="#FCF8EC" stroke-width="2.5" />`;
+        });
+      }
+      return html;
+    }
+
     function dashChartLinePath(points, key, max) {
       if (!points.length) return "";
       return points
@@ -2159,12 +2256,18 @@
       return `${line} L${lastX},${base} L${firstX},${base} Z`;
     }
 
-    function dashChartTooltipHTML(p) {
+    function dashChartTooltipHTML(p, powerP) {
       const rows = [
         `<p class="font-serif text-[11px] font-semibold text-paper-50">${escapeHTML(p.title)}</p>`,
-        `<p class="mt-1 text-paper-50/80">${p.created} created · ${p.completed} completed</p>`,
+        `<p class="mt-1 text-paper-50/80">${p.available} available · ${p.completed} completed</p>`,
         `<p class="text-paper-50/80">⏱ ${fmtMinutes(p.logged)} · ${p.efficiency}% efficiency</p>`,
       ];
+      if (powerP && !ui.dashPowerOnly) {
+        const powerDay = dashChartPowerDayHit(powerP) ? ` · ⚡ ${POWER_GOAL}/${POWER_GOAL} power day` : "";
+        rows.push(
+          `<p class="mt-1 border-t border-paper-50/15 pt-1 text-paper-50/65">⚡ ${powerP.available} available · ${powerP.completed} completed · ${fmtMinutes(powerP.logged)} · ${powerP.efficiency}%${powerDay}</p>`
+        );
+      }
       return rows.join("");
     }
 
@@ -2179,7 +2282,8 @@
       const rect = svg.getBoundingClientRect();
       const xRatio = dashChartX(index, dashChartPoints.length) / DASH_CHART.w;
       const left = xRatio * rect.width;
-      tip.innerHTML = dashChartTooltipHTML(dashChartPoints[index]);
+      const powerP = !ui.dashPowerOnly ? dashChartPowerPoints[index] : null;
+      tip.innerHTML = dashChartTooltipHTML(dashChartPoints[index], powerP);
       tip.classList.remove("hidden");
       const tipW = tip.offsetWidth || 144;
       const maxLeft = Math.max(0, rect.width - tipW - 8);
@@ -2217,8 +2321,12 @@
         toInput.max = todayISO();
       }
 
-      dashChartPoints = dashChartBuildPoints(inPowerScope, minutesFor);
-      const hasData = dashChartPoints.some((p) => p.created || p.completed || p.logged);
+      const { start: chartStart, end: chartEnd } = dashChartRangeBounds(inPowerScope);
+      dashChartPoints = dashChartBuildPoints(inPowerScope, minutesFor, chartStart, chartEnd);
+      dashChartPowerPoints = dashChartBuildPoints((t) => t.isPower, minutesFor, chartStart, chartEnd);
+      if (dashChartHover >= dashChartPoints.length) dashChartHover = -1;
+      const hasData = dashChartPoints.some((p) => p.available || p.completed || p.logged)
+        || dashChartPowerPoints.some((p) => p.available || p.completed || p.logged);
       el("dashChartEmpty").classList.toggle("hidden", hasData);
       el("dashChartWrap").classList.toggle("hidden", !hasData);
       el("dashChartLegend").classList.toggle("hidden", !hasData);
@@ -2230,17 +2338,21 @@
       }
 
       const metric = ui.dashChartMetric;
+      const scalePoints =
+        metric === "activity" || ui.dashPowerOnly
+          ? dashChartPoints
+          : [...dashChartPoints, ...dashChartPowerPoints];
       let maxVal = 1;
       let yTicks = [0, 1];
       let yUnit = "";
       if (metric === "activity") {
-        maxVal = Math.max(1, ...dashChartPoints.map((p) => Math.max(p.created, p.completed)));
+        maxVal = dashChartMaxForPoints(scalePoints, metric);
         const step = Math.max(1, Math.ceil(maxVal / 4));
         maxVal = step * 4;
         yTicks = Array.from({ length: 5 }, (_, i) => i * step);
         yUnit = "tasks";
       } else if (metric === "time") {
-        maxVal = Math.max(1, ...dashChartPoints.map((p) => p.logged));
+        maxVal = dashChartMaxForPoints(scalePoints, metric);
         const step = Math.max(30, Math.ceil(maxVal / 4 / 30) * 30);
         maxVal = step * 4;
         yTicks = Array.from({ length: 5 }, (_, i) => i * step);
@@ -2250,6 +2362,12 @@
         yTicks = [0, 25, 50, 75, 100];
         yUnit = "%";
       }
+
+      const powerLegend = !ui.dashPowerOnly
+        ? metric === "activity"
+          ? `<span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.power}"></span>⚡ ${POWER_GOAL}/${POWER_GOAL} power day</span>`
+          : `<span class="inline-flex items-center gap-1.5"><span class="inline-block h-0 w-4 border-t-2 border-dashed" style="border-color:${DASH_CHART_COLORS.power}"></span>⚡ Power</span>`
+        : "";
 
       const gridLines = yTicks
         .map((tick) => {
@@ -2275,11 +2393,11 @@
       let legendHTML = "";
       if (metric === "activity") {
         seriesSVG = `
-          <path d="${dashChartLinePath(dashChartPoints, "created", maxVal)}" fill="none" stroke="${DASH_CHART_COLORS.created}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="${dashChartLinePath(dashChartPoints, "available", maxVal)}" fill="none" stroke="${DASH_CHART_COLORS.available}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
           <path d="${dashChartLinePath(dashChartPoints, "completed", maxVal)}" fill="none" stroke="${DASH_CHART_COLORS.completed}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
         `;
         legendHTML = `
-          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.created}"></span>Created</span>
+          <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.available}"></span>Available</span>
           <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.completed}"></span>Completed</span>
         `;
       } else if (metric === "time") {
@@ -2296,16 +2414,19 @@
         legendHTML = `<span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full" style="background:${DASH_CHART_COLORS.efficiency}"></span>Daily efficiency (8h basis)</span>`;
       }
 
+      const powerSeriesSVG = metric === "activity"
+        ? dashChartPowerStreakSVG(dashChartPowerPoints, dashChartPoints)
+        : dashChartPowerLinesSVG(dashChartPowerPoints, metric, maxVal);
+
+      const isSingleDay = dashChartPoints.length === 1;
       const hoverIdx = dashChartHover >= 0 ? dashChartHover : -1;
-      const hoverDots = hoverIdx >= 0 ? (() => {
+      const seriesDots = isSingleDay
+        ? dashChartSeriesDots(dashChartPoints, metric, maxVal, metric === "activity")
+        : "";
+      const hoverDots = !isSingleDay && hoverIdx >= 0 ? (() => {
         const p = dashChartPoints[hoverIdx];
         const x = dashChartX(hoverIdx, dashChartPoints.length).toFixed(1);
-        const keys = metric === "activity"
-          ? [["created", DASH_CHART_COLORS.created], ["completed", DASH_CHART_COLORS.completed]]
-          : metric === "time"
-            ? [["logged", DASH_CHART_COLORS.logged]]
-            : [["efficiency", DASH_CHART_COLORS.efficiency]];
-        return keys.map(([key, color]) =>
+        return dashChartDotKeys(metric).map(([key, color]) =>
           `<circle cx="${x}" cy="${dashChartY(p[key], maxVal).toFixed(1)}" r="4.5" fill="${color}" stroke="#FCF8EC" stroke-width="2" />`
         ).join("");
       })() : "";
@@ -2318,13 +2439,16 @@
         <rect x="0" y="0" width="${DASH_CHART.w}" height="${DASH_CHART.h}" fill="transparent" />
         ${gridLines}
         ${seriesSVG}
+        ${powerSeriesSVG}
         ${crosshair}
+        ${seriesDots}
         ${hoverDots}
         ${xLabels}
         <rect id="dashChartHit" x="${DASH_CHART.pad.l}" y="${DASH_CHART.pad.t}" width="${dashChartPlotWidth()}" height="${dashChartPlotHeight()}" fill="transparent" />
       `;
 
-      el("dashChartLegend").innerHTML = legendHTML + `<span class="text-ink-300">· ${yUnit}</span>`;
+      el("dashChartLegend").innerHTML =
+        legendHTML + powerLegend + `<span class="text-ink-300">· ${yUnit}</span>`;
       dashChartPositionTooltip(hoverIdx);
     }
 
@@ -2357,87 +2481,84 @@
           : "bg-paper-50 text-ink-400 ring-ink-900/10 hover:bg-paper-200");
 
       const inPowerScope = (t) => !ui.dashPowerOnly || t.isPower;
+      const { start: periodStart, end: periodEnd } = dashChartRangeBounds(inPowerScope);
+      const periodTag = dashPeriodLabel(periodStart, periodEnd);
+      const inPeriod = (iso) => dashInPeriod(iso, periodStart, periodEnd);
+
+      const minutesFor = (t) => (t.completed && t.spent > 0 ? t.spent : t.duration);
 
       const scoped = tasks.filter(
         (t) => t.duration > 0 && inPowerScope(t) && (ui.dashScope === "all" || t.completed)
       );
+      const periodScoped = scoped.filter((t) => {
+        if (t.completed && t.completedAt) return inPeriod(toISO(new Date(t.completedAt)));
+        if (ui.dashScope === "all") return inPeriod(t.date);
+        return false;
+      });
 
       const createdScope = tasks.filter(inPowerScope);
-      const createdDone = createdScope.filter((t) => t.completed).length;
-      const activeCreationDays = new Set(
-        createdScope.map((t) => toISO(new Date(t.createdAt)))
-      ).size;
+      const periodAvailable = createdScope.filter((t) => inPeriod(t.date));
+      const periodCompleted = createdScope.filter(
+        (t) => t.completed && t.completedAt && inPeriod(toISO(new Date(t.completedAt)))
+      );
+      const activeScheduledDays = new Set(periodAvailable.map((t) => t.date)).size;
 
       el("dashCreated").textContent =
-        createdScope.length > 0
-          ? Math.round((createdDone / createdScope.length) * 100) + "%"
+        periodAvailable.length > 0
+          ? Math.round((periodCompleted.length / periodAvailable.length) * 100) + "%"
           : "—";
       el("dashCreatedMeta").textContent =
-        `${createdScope.length} created · ${createdDone} completed` +
+        `${periodAvailable.length} available · ${periodCompleted.length} completed · ${periodTag}` +
         (ui.dashPowerOnly ? " · ⚡ power only" : "");
 
-      const completedCount = createdDone;
-
-      if (activeCreationDays > 0) {
-        const avgCreated = createdScope.length / activeCreationDays;
-        el("dashAvgCreated").textContent = String(Math.round(avgCreated * 10) / 10);
+      if (activeScheduledDays > 0) {
+        const avgAvailable = periodAvailable.length / activeScheduledDays;
+        el("dashAvgCreated").textContent = String(Math.round(avgAvailable * 10) / 10);
         el("dashAvgCreatedMeta").textContent =
-          `${createdScope.length} created over ${activeCreationDays} active day${activeCreationDays === 1 ? "" : "s"}` +
+          `${periodAvailable.length} available over ${activeScheduledDays} active day${activeScheduledDays === 1 ? "" : "s"} · ${periodTag}` +
           (ui.dashPowerOnly ? " · ⚡ power only" : "");
 
-        const avgCompleted = completedCount / activeCreationDays;
+        const avgCompleted = periodCompleted.length / activeScheduledDays;
         el("dashAvgCompleted").textContent = String(Math.round(avgCompleted * 10) / 10);
         el("dashAvgCompletedMeta").textContent =
-          `${completedCount} completed over ${activeCreationDays} active day${activeCreationDays === 1 ? "" : "s"}` +
+          `${periodCompleted.length} completed over ${activeScheduledDays} active day${activeScheduledDays === 1 ? "" : "s"} · ${periodTag}` +
           (ui.dashPowerOnly ? " · ⚡ power only" : "");
       } else {
         el("dashAvgCreated").textContent = "—";
-        el("dashAvgCreatedMeta").textContent = ui.dashPowerOnly ? "no power tasks yet" : "no tasks yet";
+        el("dashAvgCreatedMeta").textContent =
+          (ui.dashPowerOnly ? "no power tasks in this period" : "no tasks in this period");
         el("dashAvgCompleted").textContent = "—";
-        el("dashAvgCompletedMeta").textContent = ui.dashPowerOnly ? "no power tasks yet" : "no tasks yet";
+        el("dashAvgCompletedMeta").textContent =
+          (ui.dashPowerOnly ? "no power tasks in this period" : "no tasks in this period");
       }
 
-      // Completed tasks finished through the focus timer count their actual
-      // elapsed time; everything else falls back to the planned period.
-      const minutesFor = (t) => (t.completed && t.spent > 0 ? t.spent : t.duration);
-
       const byTag = new Map();
-      for (const t of scoped) {
+      for (const t of periodScoped) {
         const keys = t.tags.length ? t.tags : ["Untagged"];
         for (const k of keys) byTag.set(k, (byTag.get(k) || 0) + minutesFor(t));
       }
       const total = [...byTag.values()].reduce((a, b) => a + b, 0);
 
-      // Efficiency: logged time (completed work only) measured against
-      // 8 productive hours per day, counted from the first day on which a
-      // task was created through today.
-      if (createdScope.length) {
-        const firstCreated = createdScope
-          .map((t) => toISO(new Date(t.createdAt)))
-          .reduce((a, b) => (a < b ? a : b));
-        const effSpanDays = Math.max(
-          1,
-          Math.round((isoToDate(todayISO()) - isoToDate(firstCreated)) / 86_400_000) + 1
-        );
-        const available = effSpanDays * PRODUCTIVE_MINUTES_PER_DAY;
-        const logged = tasks
-          .filter((t) => t.completed && inPowerScope(t))
-          .reduce((sum, t) => sum + minutesFor(t), 0);
+      const periodDayCount = dashPeriodDays(periodStart, periodEnd);
+      const logged = periodCompleted.reduce((sum, t) => sum + minutesFor(t), 0);
+      if (periodDayCount > 0) {
+        const available = periodDayCount * PRODUCTIVE_MINUTES_PER_DAY;
         const effPct = Math.round((logged / available) * 100);
         el("dashEff").textContent = effPct + "%";
         el("dashEffMeta").textContent =
-          `${fmtMinutes(logged)} logged of ${fmtMinutes(available)} available (8h × ${effSpanDays} day${effSpanDays === 1 ? "" : "s"})`;
+          `${fmtMinutes(logged)} logged of ${fmtMinutes(available)} available (8h × ${periodDayCount} day${periodDayCount === 1 ? "" : "s"}) · ${periodTag}`;
         el("dashEffBar").style.width = Math.min(100, effPct) + "%";
       } else {
         el("dashEff").textContent = "—";
-        el("dashEffMeta").textContent = "no tasks yet";
+        el("dashEffMeta").textContent = "no tasks in this period";
         el("dashEffBar").style.width = "0%";
       }
 
       el("dashTotal").textContent = fmtMinutes(total || 0);
       el("dashMeta").textContent =
-        `${scoped.length} task${scoped.length === 1 ? "" : "s"} with a time period · ` +
+        `${periodScoped.length} task${periodScoped.length === 1 ? "" : "s"} with a time period · ` +
         (ui.dashScope === "all" ? "all tasks" : "completed tasks only") +
+        ` · ${periodTag}` +
         (ui.dashPowerOnly ? " · ⚡ power only" : "");
 
       const rowsEl = el("dashRows");
@@ -3330,6 +3451,7 @@
     for (const btn of document.querySelectorAll(".dashChartRangeBtn")) {
       btn.addEventListener("click", () => {
         ui.dashChartRange = btn.dataset.range;
+        dashChartHover = -1;
         renderDashboard();
       });
     }
@@ -3337,6 +3459,7 @@
     for (const btn of document.querySelectorAll(".dashChartMetricBtn")) {
       btn.addEventListener("click", () => {
         ui.dashChartMetric = btn.dataset.metric;
+        dashChartHover = -1;
         renderDashboard();
       });
     }
@@ -3344,12 +3467,14 @@
     el("dashChartFrom").addEventListener("change", (e) => {
       ui.dashChartFrom = e.target.value;
       ui.dashChartRange = "custom";
+      dashChartHover = -1;
       renderDashboard();
     });
 
     el("dashChartTo").addEventListener("change", (e) => {
       ui.dashChartTo = e.target.value;
       ui.dashChartRange = "custom";
+      dashChartHover = -1;
       renderDashboard();
     });
 
@@ -3363,7 +3488,7 @@
     });
 
     el("dashChartWrap").addEventListener("mouseleave", () => {
-      if (dashChartHover === -1 || !dashChartContext) return;
+      if (!dashChartContext || dashChartHover === -1) return;
       dashChartHover = -1;
       renderDashChart(dashChartContext.inPowerScope, dashChartContext.minutesFor);
     });
