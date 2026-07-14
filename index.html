@@ -1169,8 +1169,13 @@
       for (const t of completedOn(iso)) add(t, "completed");
       for (const t of tasks) {
         if (t.completed) continue;
-        if (t.date === iso) add(t, "scheduled");
-        if (toISO(new Date(t.createdAt)) === iso) add(t, "created");
+        // Only tasks scheduled for this day — not ones merely created here but planned ahead.
+        if (t.date !== iso) continue;
+        add(t, "scheduled");
+        if (toISO(new Date(t.createdAt)) === iso) {
+          const entry = seen.get(t.id);
+          if (entry && !entry.roles.includes("created")) entry.roles.push("created");
+        }
       }
       return [...seen.values()];
     }
