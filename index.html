@@ -721,8 +721,9 @@
           <input id="taskPowerInput" type="checkbox"
             class="h-[18px] w-[18px] shrink-0 cursor-pointer rounded-md border-ochre-400 text-ochre-600 focus:ring-ochre-400" />
           <span class="shrink-0 whitespace-nowrap text-sm font-semibold text-ochre-700">⚡ Power task</span>
-          <span class="min-w-0 text-xs leading-snug text-ochre-600/80">counts toward the mandatory 5 of the day</span>
+          <span id="taskPowerHint" class="min-w-0 text-xs leading-snug text-ochre-600/80">counts toward the mandatory 5 of the day</span>
         </label>
+        <p id="taskPowerError" class="hidden text-[11px] font-semibold text-clay-600">This day already has 5 power tasks.</p>
 
         <!-- Recurrence -->
         <div class="rounded-xl bg-brand-50/60 px-3.5 py-3 ring-1 ring-brand-200/60">
@@ -1195,7 +1196,7 @@
                 date: iso,
                 time: tmpl.time,
                 tags: [...tmpl.tags],
-                isPower: tmpl.isPower,
+                isPower: resolvePowerForDay(iso, tmpl.isPower),
                 duration: tmpl.duration,
                 spent: 0,
                 completed: false,
@@ -1235,7 +1236,7 @@
         task.title = tmpl.title;
         task.time = tmpl.time;
         task.tags = [...tmpl.tags];
-        task.isPower = tmpl.isPower;
+        task.isPower = resolvePowerForDay(task.date, tmpl.isPower, task.id);
         task.duration = tmpl.duration;
       }
     }
@@ -1717,6 +1718,17 @@
     function powerCompletedCount(iso) {
       return completedOn(iso).filter((t) => t.isPower).length;
     }
+    function powerTaskCountForDay(iso, excludeTaskId = null) {
+      return tasks.filter(
+        (t) => t.date === iso && t.isPower && t.id !== excludeTaskId
+      ).length;
+    }
+    function canMarkAsPowerForDay(iso, excludeTaskId = null) {
+      return powerTaskCountForDay(iso, excludeTaskId) < POWER_GOAL;
+    }
+    function resolvePowerForDay(iso, wantPower, excludeTaskId = null) {
+      return Boolean(wantPower) && canMarkAsPowerForDay(iso, excludeTaskId);
+    }
     function isPowerDay(iso) {
       return powerCompletedCount(iso) >= POWER_GOAL;
     }
@@ -2058,6 +2070,7 @@
 
       const taskOverlaps = overlappingIds && overlappingIds.has(task.id);
       const grayPill = "bg-paper-300/70 text-ink-300 ring-ink-900/10";
+      const powerAtLimit = !task.isPower && !canMarkAsPowerForDay(task.date, task.id);
       const timeColor = behindSchedule
         ? "text-ink-300"
         : taskOverlaps
@@ -2103,15 +2116,21 @@
             <p class="break-words text-sm font-medium leading-snug ${task.completed ? "text-ink-300 line-through" : behindSchedule ? "text-ink-300" : "text-ink-700"}">${timePrefix}${repeatPrefix}${escapeHTML(task.title)}</p>
             ${metaBits.length ? `<div class="mt-1.5 flex flex-wrap items-center gap-1.5">${metaBits.join("")}</div>` : ""}
           </div>
-          <button type="button" title="${task.isPower ? "Power task — click to unmark" : "Mark as power task"}"
+          <button type="button" title="${
+              task.isPower
+                ? "Power task — click to unmark"
+                : powerAtLimit
+                  ? `Maximum ${POWER_GOAL} power tasks on this day`
+                  : "Mark as power task"
+            }"
             aria-label="Toggle power task"
             class="powerToggle mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg text-sm transition ${
-              behindSchedule
-                ? task.isPower
-                  ? `${grayPill}`
-                  : "text-ink-300/50 opacity-100"
-                : task.isPower
-                  ? "bg-ochre-100 text-ochre-600 ring-1 ring-ochre-400/50"
+              task.isPower
+                ? behindSchedule
+                  ? grayPill
+                  : "bg-ochre-100 text-ochre-600 ring-1 ring-ochre-400/50"
+                : powerAtLimit
+                  ? "pointer-events-none opacity-0"
                   : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ochre-600"
             }">⚡</button>
         </div>
@@ -2126,6 +2145,7 @@
       });
       card.querySelector(".powerToggle").addEventListener("click", (e) => {
         e.stopPropagation();
+        if (!task.isPower && !canMarkAsPowerForDay(task.date, task.id)) return;
         task.isPower = !task.isPower;
         saveTasks();
         render();
@@ -2319,6 +2339,9 @@
         const targetDate = zone.dataset.date;
         const after = cardAfterPosition(zone, clientY);
         task.date = targetDate;
+        if (task.isPower && !canMarkAsPowerForDay(targetDate, task.id)) {
+          task.isPower = false;
+        }
 
         // Rebuild manual order for the target day with the task inserted at
         // the drop point. (Timed tasks still sort by their time stamp.)
@@ -3552,6 +3575,7 @@
 
     function onDateInputSettled() {
       syncDateDisplay();
+      syncModalPowerLimit();
       dismissDatePicker();
     }
 
@@ -3674,6 +3698,31 @@
       }
     }
 
+    function syncModalPowerLimit() {
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(taskDateInput.value) ? taskDateInput.value : todayISO();
+      const count = powerTaskCountForDay(date, ui.editingTaskId);
+      const atLimit = count >= POWER_GOAL;
+      const checked = taskPowerInput.checked;
+      const canToggle = !atLimit || checked;
+      const label = taskPowerInput.closest("label");
+
+      taskPowerInput.disabled = !canToggle;
+      if (label) {
+        label.classList.toggle("opacity-50", !canToggle);
+        label.classList.toggle("cursor-not-allowed", !canToggle);
+        label.classList.toggle("cursor-pointer", canToggle);
+        label.classList.toggle("hover:bg-ochre-100", canToggle);
+      }
+
+      const hint = el("taskPowerHint");
+      if (hint) {
+        hint.textContent = atLimit && !checked
+          ? `${POWER_GOAL} power tasks already on this day`
+          : `${count}/${POWER_GOAL} power tasks on this day`;
+      }
+      if (canToggle) el("taskPowerError").classList.add("hidden");
+    }
+
     function openTaskModal(taskId, presetDate) {
       if (syncRequired() && !isSignedIn()) {
         setSyncModalOpen(true);
@@ -3718,7 +3767,9 @@
       el("taskTagsError").classList.add("hidden");
       el("taskDurationError").classList.add("hidden");
       el("taskRecurrenceDaysError").classList.add("hidden");
+      el("taskPowerError").classList.add("hidden");
       renderTagLibraryChips();
+      syncModalPowerLimit();
 
       taskModal.classList.remove("hidden");
       taskModal.classList.add("flex");
@@ -3759,7 +3810,19 @@
       }
       el("taskDurationError").classList.add("hidden");
 
-      const isPower = taskPowerInput.checked;
+      const wantsPower = taskPowerInput.checked;
+      const recurrence = readRecurrenceRuleFromModal();
+      const recurring = taskRepeatInput.checked && recurrence;
+      if (wantsPower && !recurring && !canMarkAsPowerForDay(date, ui.editingTaskId)) {
+        el("taskPowerError").classList.remove("hidden");
+        syncModalPowerLimit();
+        return;
+      }
+      el("taskPowerError").classList.add("hidden");
+      const isPower = recurring
+        ? wantsPower
+        : resolvePowerForDay(date, wantsPower, ui.editingTaskId);
+
       const newTags = parseTags(taskTagsInput.value);
       const tags = [...new Set([
         ...(ui.modalSelectedTag ? [ui.modalSelectedTag] : []),
@@ -3773,7 +3836,6 @@
       el("taskTagsError").classList.add("hidden");
       addTagsToLibrary(newTags);
 
-      const recurrence = readRecurrenceRuleFromModal();
       if (taskRepeatInput.checked && !recurrence) {
         el("taskRecurrenceDaysError").classList.remove("hidden");
         return;
@@ -3798,7 +3860,11 @@
                 Object.assign(task, { recurrenceId: tmpl.id });
               }
             }
-            Object.assign(task, { title, time, tags, isPower, duration });
+            Object.assign(task, {
+              title, time, tags,
+              isPower: resolvePowerForDay(task.date, wantsPower, task.id),
+              duration,
+            });
           } else if (ui.editingRecurrenceId) {
             stopRecurringSeries(ui.editingRecurrenceId, task.id);
             Object.assign(task, { title, date, time, tags, isPower, duration });
@@ -3864,6 +3930,7 @@
     el("deleteConfirmBackdrop").addEventListener("click", closeDeleteConfirm);
 
     taskRepeatInput.addEventListener("change", updateRecurrencePanelVisibility);
+    taskPowerInput.addEventListener("change", syncModalPowerLimit);
     taskRecurrenceFreq.addEventListener("change", () => {
       if (taskRecurrenceFreq.value === "weekly" && !getSelectedRecurrenceDays().length) {
         setSelectedRecurrenceDays([isoToDate(taskDateInput.value || todayISO()).getDay()]);
@@ -3887,6 +3954,7 @@
         }
         updateRecurrenceSummary();
       }
+      syncModalPowerLimit();
     });
 
     taskTimeInput.addEventListener("blur", () => {
