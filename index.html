@@ -119,6 +119,30 @@
       background-size: 0.625rem;
     }
 
+    /* Recurrence weekday toggles */
+    .recurrence-day-btn {
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 0.375rem 0;
+      border-radius: 0.5rem;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      cursor: pointer;
+      transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+      background-color: rgb(240 231 208 / 0.6);
+      color: rgb(124 113 99);
+      box-shadow: inset 0 0 0 1px rgb(38 33 25 / 0.1);
+    }
+    .recurrence-day-btn:hover {
+      background-color: rgb(230 218 189 / 0.8);
+    }
+    .recurrence-day-btn.is-active {
+      background-color: rgb(124 157 135);
+      color: rgb(252 248 236);
+      box-shadow: inset 0 0 0 1px rgb(78 106 89 / 0.4);
+    }
+
     /* Task-card meta row: tags, duration picker, and Start share one height. */
     .card-meta-pill {
       display: inline-flex;
@@ -140,6 +164,21 @@
       background-repeat: no-repeat;
       background-position: right 0.3rem center;
       background-size: 0.625rem;
+    }
+
+    /* Incomplete tasks whose scheduled block has already passed. */
+    .card-behind-schedule {
+      opacity: 0.5;
+      filter: grayscale(1) saturate(0);
+    }
+    .card-behind-schedule:hover {
+      opacity: 0.58;
+      filter: grayscale(1) saturate(0);
+    }
+    .card-behind-schedule .taskCheck {
+      accent-color: #9C9081;
+      border-color: #9C9081;
+      color: #9C9081;
     }
 
     /* Arrow-banner for unplanned gaps between timed tasks (08:00–17:00). */
@@ -685,6 +724,50 @@
           <span class="min-w-0 text-xs leading-snug text-ochre-600/80">counts toward the mandatory 5 of the day</span>
         </label>
 
+        <!-- Recurrence -->
+        <div class="rounded-xl bg-brand-50/60 px-3.5 py-3 ring-1 ring-brand-200/60">
+          <label for="taskRepeatInput" class="flex cursor-pointer items-center gap-3">
+            <input id="taskRepeatInput" type="checkbox"
+              class="h-[18px] w-[18px] shrink-0 cursor-pointer rounded-md border-brand-500 text-brand-600 focus:ring-brand-500" />
+            <span class="text-sm font-semibold text-brand-700">Repeat this task</span>
+          </label>
+
+          <div id="taskRecurrencePanel" class="mt-3 hidden space-y-3">
+            <div>
+              <label for="taskRecurrenceFreq" class="mb-1.5 block text-xs font-semibold text-ink-500">Repeats</label>
+              <select id="taskRecurrenceFreq"
+                class="modal-duration-select w-full cursor-pointer rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <option value="daily">Every day</option>
+                <option value="weekly">Every week on…</option>
+                <option value="monthly">Every month on day…</option>
+                <option value="monthly_last">Last day of every month</option>
+              </select>
+            </div>
+
+            <div id="taskRecurrenceWeekly" class="hidden">
+              <p class="mb-1.5 text-xs font-semibold text-ink-500">On these days</p>
+              <div id="taskRecurrenceDays" class="flex gap-1">
+                <button type="button" class="recurrence-day-btn" data-dow="1">M</button>
+                <button type="button" class="recurrence-day-btn" data-dow="2">T</button>
+                <button type="button" class="recurrence-day-btn" data-dow="3">W</button>
+                <button type="button" class="recurrence-day-btn" data-dow="4">T</button>
+                <button type="button" class="recurrence-day-btn" data-dow="5">F</button>
+                <button type="button" class="recurrence-day-btn" data-dow="6">S</button>
+                <button type="button" class="recurrence-day-btn" data-dow="0">S</button>
+              </div>
+              <p id="taskRecurrenceDaysError" class="mt-1.5 hidden text-[11px] font-semibold text-clay-600">Pick at least one day.</p>
+            </div>
+
+            <div id="taskRecurrenceMonthly" class="hidden">
+              <label for="taskRecurrenceDayOfMonth" class="mb-1.5 block text-xs font-semibold text-ink-500">Day of month</label>
+              <input id="taskRecurrenceDayOfMonth" type="number" min="1" max="31" value="1"
+                class="w-full rounded-xl border-0 bg-paper-200/60 px-3.5 py-2.5 text-sm text-ink-700 ring-1 ring-ink-900/10 transition focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+
+            <p id="taskRecurrenceSummary" class="text-[11px] leading-snug text-brand-700/80"></p>
+          </div>
+        </div>
+
         <div>
           <label class="mb-1.5 block text-xs font-semibold text-ink-500">Tags <span class="text-clay-500">*</span></label>
           <div id="tagLibraryChips" class="mb-2 flex flex-wrap gap-1.5"></div>
@@ -723,7 +806,21 @@
       <p id="deleteConfirmTitle" class="mt-2 break-words text-sm font-semibold text-ink-700"></p>
       <p id="deleteConfirmDetails" class="mt-1 text-xs text-ink-400"></p>
       <p id="deleteConfirmImpact" class="mt-3 text-sm text-ink-500"></p>
-      <div class="mt-5 flex items-center justify-end gap-2">
+      <div id="deleteConfirmRecurringActions" class="mt-4 hidden space-y-2">
+        <button id="deleteConfirmOccurrenceBtn" type="button"
+          class="w-full rounded-xl bg-clay-500 px-4 py-2.5 text-sm font-semibold text-paper-50 shadow-card transition hover:bg-clay-600 active:scale-[0.98]">
+          Delete this occurrence only
+        </button>
+        <button id="deleteConfirmSeriesBtn" type="button"
+          class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-clay-600 ring-1 ring-clay-200 transition hover:bg-clay-50">
+          Delete entire series
+        </button>
+        <button id="deleteConfirmRecurringCancelBtn" type="button"
+          class="w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-ink-400 transition hover:bg-paper-200">
+          Cancel
+        </button>
+      </div>
+      <div id="deleteConfirmStandardActions" class="mt-5 flex items-center justify-end gap-2">
         <button id="deleteConfirmCancelBtn" type="button"
           class="rounded-xl px-3.5 py-2 text-sm font-semibold text-ink-400 transition hover:bg-paper-200">
           Cancel
@@ -749,6 +846,7 @@
     const STORAGE_KEY = "powerlist_tasks_v2";
     const TAGS_KEY = "powerlist_tags_v1";
     const DAY_NOTES_KEY = "powerlist_day_notes_v1";
+    const RECURRING_KEY = "powerlist_recurring_v1";
     const LEGACY_STORAGE_KEY = "premium_todo_tasks_v1";
     const VISIBLE_DAYS = 3;
     const TRAY_LABEL_CHARS = 15;
@@ -764,12 +862,31 @@
      *   id: string, title: string, date: string, time: string,
      *   tags: string[], isPower: boolean, duration: number,
      *   spent: number, completed: boolean, completedAt: number|null,
-     *   createdAt: number, order: number
+     *   createdAt: number, order: number,
+     *   recurrenceId?: string, recurrenceDate?: string
      * }} Task
+     */
+
+    /**
+     * @typedef {{
+     *   freq: "daily"|"weekly"|"monthly"|"monthly_last",
+     *   daysOfWeek?: number[], dayOfMonth?: number
+     * }} RecurrenceRule
+     */
+
+    /**
+     * @typedef {{
+     *   id: string, title: string, time: string, tags: string[],
+     *   isPower: boolean, duration: number, recurrence: RecurrenceRule,
+     *   startDate: string, enabled: boolean, createdAt: number
+     * }} RecurringTemplate
      */
 
     /** @type {Task[]} */
     let tasks = [];
+
+    /** @type {RecurringTemplate[]} */
+    let recurringTemplates = [];
 
     /** @type {string[]} Persistent library of every tag ever used. */
     let tagLibrary = [];
@@ -786,6 +903,7 @@
       calMonth: 0,              // 0-based
       selectedHistoryDate: "",  // ISO date selected in history
       editingTaskId: null,      // task being edited in modal, or null
+      editingRecurrenceId: null,  // recurring template id when editing a series
       modalSelectedTag: null,   // single tag chosen in task modal
       dashScope: "completed",   // "completed" | "all"
       dashPowerOnly: false,     // dashboard: statistics for power tasks only
@@ -850,6 +968,143 @@
       return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
     }
 
+    const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    /** @param {RecurringTemplate} tmpl @param {string} iso */
+    function matchesRecurrence(tmpl, iso) {
+      if (iso < tmpl.startDate) return false;
+      const d = isoToDate(iso);
+      const { freq, daysOfWeek, dayOfMonth } = tmpl.recurrence;
+      switch (freq) {
+        case "daily":
+          return true;
+        case "weekly":
+          return Boolean(daysOfWeek && daysOfWeek.includes(d.getDay()));
+        case "monthly":
+          return d.getDate() === dayOfMonth;
+        case "monthly_last": {
+          const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+          return d.getDate() === last;
+        }
+        default:
+          return false;
+      }
+    }
+
+    /** @param {RecurrenceRule} recurrence */
+    function describeRecurrence(recurrence) {
+      switch (recurrence.freq) {
+        case "daily":
+          return "Every day";
+        case "weekly": {
+          const days = (recurrence.daysOfWeek || []).map((d) => WEEKDAY_NAMES[d]);
+          return days.length ? `Every ${days.join(", ")}` : "Every week";
+        }
+        case "monthly":
+          return `Every month on day ${recurrence.dayOfMonth || 1}`;
+        case "monthly_last":
+          return "Last day of every month";
+        default:
+          return "Repeats";
+      }
+    }
+
+    function recurringDateRange() {
+      const today = todayISO();
+      let start = addDaysISO(today, -120);
+      let end = addDaysISO(today, Math.max(90, ui.dayOffset + VISIBLE_DAYS + 30));
+      for (const t of tasks) {
+        if (t.recurrenceId && t.date < start) start = t.date;
+      }
+      return { start, end };
+    }
+
+    /** Materialize recurring templates into task instances for the visible range. */
+    function ensureRecurringInstances() {
+      if (!recurringTemplates.length) return false;
+      const { start, end } = recurringDateRange();
+      let changed = false;
+
+      for (const tmpl of recurringTemplates) {
+        if (!tmpl.enabled) continue;
+        let iso = tmpl.startDate > start ? tmpl.startDate : start;
+        while (iso <= end) {
+          if (matchesRecurrence(tmpl, iso)) {
+            const exists = tasks.some(
+              (t) => t.recurrenceId === tmpl.id && t.recurrenceDate === iso
+            );
+            if (!exists) {
+              const dayCount = tasks.filter((t) => t.date === iso).length;
+              tasks.push({
+                id: uid(),
+                title: tmpl.title,
+                date: iso,
+                time: tmpl.time,
+                tags: [...tmpl.tags],
+                isPower: tmpl.isPower,
+                duration: tmpl.duration,
+                spent: 0,
+                completed: false,
+                completedAt: null,
+                createdAt: Date.now(),
+                order: dayCount,
+                recurrenceId: tmpl.id,
+                recurrenceDate: iso,
+              });
+              changed = true;
+            }
+          }
+          iso = addDaysISO(iso, 1);
+        }
+      }
+      return changed;
+    }
+
+    /** @param {RecurringTemplate} tmpl */
+    function pruneFutureRecurringInstances(tmpl) {
+      const today = todayISO();
+      const removed = [];
+      tasks = tasks.filter((t) => {
+        if (t.recurrenceId !== tmpl.id || t.completed || t.date < today) return true;
+        const occDate = t.recurrenceDate || t.date;
+        if (matchesRecurrence(tmpl, occDate)) return true;
+        removed.push(t);
+        return false;
+      });
+      for (const task of removed) pruneDayNotesAfterDelete(task);
+    }
+
+    /** @param {RecurringTemplate} tmpl */
+    function syncRecurringInstancesFromTemplate(tmpl) {
+      for (const task of tasks) {
+        if (task.recurrenceId !== tmpl.id || task.completed) continue;
+        task.title = tmpl.title;
+        task.time = tmpl.time;
+        task.tags = [...tmpl.tags];
+        task.isPower = tmpl.isPower;
+        task.duration = tmpl.duration;
+      }
+    }
+
+    function deleteRecurringSeries(recurrenceId) {
+      recurringTemplates = recurringTemplates.filter((t) => t.id !== recurrenceId);
+      const removed = tasks.filter((t) => t.recurrenceId === recurrenceId);
+      tasks = tasks.filter((t) => t.recurrenceId !== recurrenceId);
+      for (const task of removed) pruneDayNotesAfterDelete(task);
+      saveRecurringTemplates();
+    }
+
+    function detachRecurringSeries(recurrenceId) {
+      recurringTemplates = recurringTemplates.filter((t) => t.id !== recurrenceId);
+      for (const task of tasks) {
+        if (task.recurrenceId === recurrenceId) {
+          delete task.recurrenceId;
+          delete task.recurrenceDate;
+        }
+      }
+      saveRecurringTemplates();
+    }
+
     // ---------- Persistence ----------
     /**
      * Data-safety rules:
@@ -877,14 +1132,49 @@
         completedAt: t.completedAt ? Number(t.completedAt) : null,
         createdAt: Number(t.createdAt ?? Date.now()),
         order: Number.isFinite(t.order) ? Number(t.order) : i,
+        ...(t.recurrenceId ? { recurrenceId: String(t.recurrenceId) } : {}),
+        ...(t.recurrenceDate ? { recurrenceDate: String(t.recurrenceDate) } : {}),
       }));
+    }
+
+    /** @param {unknown} parsed */
+    function normalizeRecurringTemplates(parsed) {
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((t) => t && typeof t === "object" && t.title).map((t) => {
+        const rec = t.recurrence && typeof t.recurrence === "object" ? t.recurrence : {};
+        const freq = ["daily", "weekly", "monthly", "monthly_last"].includes(rec.freq) ? rec.freq : "daily";
+        /** @type {RecurrenceRule} */
+        const recurrence = { freq };
+        if (freq === "weekly") {
+          const days = Array.isArray(rec.daysOfWeek)
+            ? rec.daysOfWeek.map((d) => Number(d)).filter((d) => d >= 0 && d <= 6)
+            : [isoToDate(t.startDate || todayISO()).getDay()];
+          recurrence.daysOfWeek = [...new Set(days)].sort((a, b) => a - b);
+        }
+        if (freq === "monthly") {
+          const dom = Number(rec.dayOfMonth);
+          recurrence.dayOfMonth = dom >= 1 && dom <= 31 ? dom : 1;
+        }
+        return {
+          id: String(t.id ?? uid()),
+          title: String(t.title).trim(),
+          time: typeof t.time === "string" ? t.time : "",
+          tags: Array.isArray(t.tags) ? t.tags.map((x) => capitalizeFirst(String(x))) : [],
+          isPower: Boolean(t.isPower),
+          duration: Number.isFinite(Number(t.duration)) ? Number(t.duration) : 0,
+          recurrence,
+          startDate: /^\d{4}-\d{2}-\d{2}$/.test(t.startDate) ? t.startDate : todayISO(),
+          enabled: t.enabled !== false,
+          createdAt: Number(t.createdAt ?? Date.now()),
+        };
+      });
     }
 
     function writeBackup() {
       try {
         localStorage.setItem(
           BACKUP_PREFIX + todayISO(),
-          JSON.stringify({ tasks, tags: tagLibrary, dayNotes, savedAt: Date.now() })
+          JSON.stringify({ tasks, tags: tagLibrary, dayNotes, recurringTemplates, savedAt: Date.now() })
         );
         const keys = Object.keys(localStorage).filter((k) => k.startsWith(BACKUP_PREFIX)).sort();
         while (keys.length > BACKUP_KEEP) localStorage.removeItem(keys.shift());
@@ -908,8 +1198,8 @@
     function activeStorageKeys() {
       const uid = syncState && syncState.user && syncState.user.id;
       return uid
-        ? { tasks: `${STORAGE_KEY}_${uid}`, tags: `${TAGS_KEY}_${uid}` }
-        : { tasks: STORAGE_KEY, tags: TAGS_KEY };
+        ? { tasks: `${STORAGE_KEY}_${uid}`, tags: `${TAGS_KEY}_${uid}`, recurring: `${RECURRING_KEY}_${uid}` }
+        : { tasks: STORAGE_KEY, tags: TAGS_KEY, recurring: RECURRING_KEY };
     }
 
     const LEGACY_OWNER_KEY = "powerlist_legacy_owner";
@@ -926,6 +1216,16 @@
         }
       } catch { /* start empty */ }
       tasks = loaded;
+
+      let recurringLoaded = [];
+      try {
+        const raw = localStorage.getItem(keys.recurring);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) recurringLoaded = normalizeRecurringTemplates(parsed);
+        }
+      } catch { /* start empty */ }
+      recurringTemplates = recurringLoaded;
 
       let stored = [];
       try {
@@ -969,12 +1269,34 @@
     }
 
     function storageKeysFor(userId) {
-      return { tasks: `${STORAGE_KEY}_${userId}`, tags: `${TAGS_KEY}_${userId}` };
+      return {
+        tasks: `${STORAGE_KEY}_${userId}`,
+        tags: `${TAGS_KEY}_${userId}`,
+        recurring: `${RECURRING_KEY}_${userId}`,
+      };
+    }
+
+    function saveRecurringTemplates() {
+      if (syncRequired() && !isSignedIn()) return;
+      try {
+        localStorage.setItem(activeStorageKeys().recurring, JSON.stringify(recurringTemplates));
+      } catch { /* full */ }
+      writeBackup();
+      markLocalChange();
+    }
+
+    function loadRecurringTemplates() {
+      try {
+        const raw = localStorage.getItem(RECURRING_KEY);
+        return normalizeRecurringTemplates(raw ? JSON.parse(raw) : []);
+      } catch { /* start fresh */ }
+      return [];
     }
 
     function saveTasks() {
       if (syncRequired() && !isSignedIn()) return;
       localStorage.setItem(activeStorageKeys().tasks, JSON.stringify(tasks));
+      saveRecurringTemplates();
       writeBackup();
       markLocalChange();
     }
@@ -1257,6 +1579,19 @@
       const [h, m] = time.split(":").map(Number);
       return h * 60 + m;
     }
+    function nowMinutes() {
+      const d = new Date();
+      return d.getHours() * 60 + d.getMinutes();
+    }
+    /** True when an incomplete timed task's start + reserved time is already in the past. */
+    function isTaskBehindSchedule(task) {
+      if (task.completed || !task.time) return false;
+      const today = todayISO();
+      if (task.date > today) return false;
+      const end = timeToMinutes(task.time) + (task.duration > 0 ? task.duration : 0);
+      if (task.date < today) return true;
+      return nowMinutes() > end;
+    }
     function resizeDayNoteInput(textarea) {
       textarea.style.height = "auto";
       textarea.style.height = `${textarea.scrollHeight}px`;
@@ -1512,32 +1847,52 @@
       const card = document.createElement("article");
       card.dataset.taskId = task.id;
       card.draggable = !task.completed;
+      const behindSchedule = isTaskBehindSchedule(task);
       card.className =
-        "card-in group cursor-pointer rounded-xl bg-paper-50 p-3 shadow-card ring-1 transition hover:ring-brand-500/50 " +
-        (task.isPower ? "ring-ochre-400/60 " : "ring-ink-900/10 ") +
+        "card-in group cursor-pointer rounded-xl bg-paper-50 p-3 shadow-card ring-1 transition " +
+        (behindSchedule
+          ? "card-behind-schedule ring-ink-900/10 hover:ring-ink-900/15 "
+          : "hover:ring-brand-500/50 " + (task.isPower ? "ring-ochre-400/60 " : "ring-ink-900/10 ")) +
         (task.completed ? "opacity-60" : "cursor-grab active:cursor-grabbing");
+      if (behindSchedule) {
+        card.title = "Behind schedule — scheduled block has passed";
+      }
 
       const taskOverlaps = overlappingIds && overlappingIds.has(task.id);
-      const timeColor = taskOverlaps
-        ? "text-red-600"
-        : task.completed ? "text-ink-300" : "text-ink-400";
+      const grayPill = "bg-paper-300/70 text-ink-300 ring-ink-900/10";
+      const timeColor = behindSchedule
+        ? "text-ink-300"
+        : taskOverlaps
+          ? "text-red-600"
+          : task.completed ? "text-ink-300" : "text-ink-400";
       const timePrefix = task.time
-        ? `<span class="mr-1.5 font-semibold tabular-nums ${timeColor}"${taskOverlaps ? ' title="Overlaps with the previous timed task"' : ""}>${escapeHTML(task.time)}</span>`
+        ? `<span class="mr-1.5 font-semibold tabular-nums ${timeColor}"${taskOverlaps && !behindSchedule ? ' title="Overlaps with the previous timed task"' : ""}>${escapeHTML(task.time)}</span>`
+        : "";
+      const repeatPrefix = task.recurrenceId
+        ? `<span class="mr-1 ${behindSchedule ? "text-ink-300" : "text-brand-600"}" title="Recurring task">↻</span>`
         : "";
 
       // Tags and the timer controls share one meta row to keep cards compact.
-      const metaBits = task.tags.map((tag) => tagChipHTML(tag));
+      const metaBits = task.tags.map((tag) =>
+        behindSchedule
+          ? `<span class="card-meta-pill rounded-full ring-1 ${grayPill}">${escapeHTML(tag)}</span>`
+          : tagChipHTML(tag)
+      );
       if (task.completed && loggedMinutesFor(task) > 0) {
-        metaBits.push(taskTimeBubbleHTML(task));
+        metaBits.push(
+          behindSchedule
+            ? `<span class="card-meta-pill rounded-full ring-1 ${grayPill}">⏱ ${fmtMinutes(loggedMinutesFor(task))}</span>`
+            : taskTimeBubbleHTML(task)
+        );
       } else if (!task.completed) {
         metaBits.push(`
-          <select class="card-meta-pill durationSelect cursor-pointer rounded-full border-0 bg-paper-200/70 font-semibold text-ink-500 ring-1 ring-ink-900/10 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          <select class="card-meta-pill durationSelect cursor-pointer rounded-full border-0 font-semibold ring-1 focus:outline-none focus:ring-2 focus:ring-brand-500 ${behindSchedule ? grayPill : "bg-paper-200/70 text-ink-500 ring-ink-900/10"}"
             aria-label="Reserved time for this task">
             ${TIMER_DURATIONS.map((m) => `<option value="${m}" ${task.duration === m ? "selected" : ""}>⏱ ${m} min</option>`).join("")}
             ${task.duration > 0 && !TIMER_DURATIONS.includes(task.duration) ? `<option value="${task.duration}" selected>⏱ ${task.duration} min</option>` : ""}
           </select>
           <button type="button" title="Start countdown timer"
-            class="card-meta-pill startTimerBtn ${task.duration ? "" : "hidden"} gap-1 rounded-full bg-moss-100 font-bold text-moss-700 ring-1 ring-moss-500/30 transition hover:bg-moss-200">
+            class="card-meta-pill startTimerBtn ${task.duration ? "" : "hidden"} gap-1 rounded-full font-bold ring-1 transition ${behindSchedule ? `${grayPill} hover:bg-paper-300/70` : "bg-moss-100 text-moss-700 ring-moss-500/30 hover:bg-moss-200"}">
             ▶ Start
           </button>`);
       }
@@ -1547,15 +1902,19 @@
           <input type="checkbox" ${task.completed ? "checked" : ""} aria-label="Mark task complete"
             class="taskCheck mt-0.5 h-[18px] w-[18px] shrink-0 cursor-pointer rounded-md border-ink-300 text-moss-600 focus:ring-moss-500" />
           <div class="min-w-0 flex-1">
-            <p class="break-words text-sm font-medium leading-snug ${task.completed ? "text-ink-300 line-through" : "text-ink-700"}">${timePrefix}${escapeHTML(task.title)}</p>
+            <p class="break-words text-sm font-medium leading-snug ${task.completed ? "text-ink-300 line-through" : behindSchedule ? "text-ink-300" : "text-ink-700"}">${timePrefix}${repeatPrefix}${escapeHTML(task.title)}</p>
             ${metaBits.length ? `<div class="mt-1.5 flex flex-wrap items-center gap-1.5">${metaBits.join("")}</div>` : ""}
           </div>
           <button type="button" title="${task.isPower ? "Power task — click to unmark" : "Mark as power task"}"
             aria-label="Toggle power task"
             class="powerToggle mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg text-sm transition ${
-              task.isPower
-                ? "bg-ochre-100 text-ochre-600 ring-1 ring-ochre-400/50"
-                : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ochre-600"
+              behindSchedule
+                ? task.isPower
+                  ? `${grayPill}`
+                  : "text-ink-300/50 opacity-100"
+                : task.isPower
+                  ? "bg-ochre-100 text-ochre-600 ring-1 ring-ochre-400/50"
+                  : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ochre-600"
             }">⚡</button>
         </div>
       `;
@@ -2778,7 +3137,17 @@
     const tagLibraryChipsEl = el("tagLibraryChips");
     const taskDeleteBtn = el("taskDeleteBtn");
     const deleteConfirmModal = el("deleteConfirmModal");
+    const taskRepeatInput = el("taskRepeatInput");
+    const taskRecurrencePanel = el("taskRecurrencePanel");
+    const taskRecurrenceFreq = el("taskRecurrenceFreq");
+    const taskRecurrenceWeekly = el("taskRecurrenceWeekly");
+    const taskRecurrenceMonthly = el("taskRecurrenceMonthly");
+    const taskRecurrenceDayOfMonth = el("taskRecurrenceDayOfMonth");
+    const taskRecurrenceDays = el("taskRecurrenceDays");
+    const taskRecurrenceSummary = el("taskRecurrenceSummary");
+    const taskDateLabel = document.querySelector('label[for="taskDateInput"]');
     let pendingDeleteTaskId = null;
+    let pendingDeleteRecurrenceId = null;
 
     async function deleteTaskById(taskId) {
       const removed = tasks.find((t) => t.id === taskId);
@@ -2791,8 +3160,112 @@
       renderDashboard();
     }
 
+    async function deleteRecurringSeriesById(recurrenceId) {
+      deleteRecurringSeries(recurrenceId);
+      saveTasks();
+      if (sbClient && syncState.user) await pushToCloud();
+      render();
+      renderDashboard();
+    }
+
+    function updateRecurrencePanelVisibility() {
+      const enabled = taskRepeatInput.checked;
+      taskRecurrencePanel.classList.toggle("hidden", !enabled);
+      if (taskDateLabel) taskDateLabel.textContent = enabled ? "Starts on" : "Day";
+      updateRecurrenceFreqPanels();
+      updateRecurrenceSummary();
+    }
+
+    function updateRecurrenceFreqPanels() {
+      const freq = taskRecurrenceFreq.value;
+      taskRecurrenceWeekly.classList.toggle("hidden", freq !== "weekly");
+      taskRecurrenceMonthly.classList.toggle("hidden", freq !== "monthly");
+    }
+
+    function getSelectedRecurrenceDays() {
+      return [...taskRecurrenceDays.querySelectorAll(".recurrence-day-btn.is-active")]
+        .map((btn) => Number(btn.dataset.dow))
+        .filter((d) => d >= 0 && d <= 6)
+        .sort((a, b) => a - b);
+    }
+
+    function setSelectedRecurrenceDays(days) {
+      const set = new Set(days);
+      for (const btn of taskRecurrenceDays.querySelectorAll(".recurrence-day-btn")) {
+        btn.classList.toggle("is-active", set.has(Number(btn.dataset.dow)));
+      }
+    }
+
+    function updateRecurrenceSummary() {
+      if (!taskRepeatInput.checked) {
+        taskRecurrenceSummary.textContent = "";
+        return;
+      }
+      const rule = readRecurrenceRuleFromModal();
+      taskRecurrenceSummary.textContent = rule ? describeRecurrence(rule) : "";
+    }
+
+    /** @returns {RecurrenceRule|null} */
+    function readRecurrenceRuleFromModal() {
+      if (!taskRepeatInput.checked) return null;
+      const freq = taskRecurrenceFreq.value;
+      if (freq === "weekly") {
+        const daysOfWeek = getSelectedRecurrenceDays();
+        return daysOfWeek.length ? { freq: "weekly", daysOfWeek } : null;
+      }
+      if (freq === "monthly") {
+        const dayOfMonth = Math.min(31, Math.max(1, Number(taskRecurrenceDayOfMonth.value) || 1));
+        return { freq: "monthly", dayOfMonth };
+      }
+      return { freq };
+    }
+
+  /** @param {RecurringTemplate|null} tmpl */
+    function setRecurrenceModalFromTemplate(tmpl) {
+      if (!tmpl) {
+        taskRepeatInput.checked = false;
+        taskRecurrenceFreq.value = "daily";
+        setSelectedRecurrenceDays([isoToDate(taskDateInput.value || todayISO()).getDay()]);
+        taskRecurrenceDayOfMonth.value = "1";
+        updateRecurrencePanelVisibility();
+        return;
+      }
+      taskRepeatInput.checked = true;
+      taskRecurrenceFreq.value = tmpl.recurrence.freq;
+      if (tmpl.recurrence.freq === "weekly") {
+        setSelectedRecurrenceDays(tmpl.recurrence.daysOfWeek || []);
+      } else if (tmpl.recurrence.freq === "monthly") {
+        taskRecurrenceDayOfMonth.value = String(tmpl.recurrence.dayOfMonth || 1);
+      }
+      updateRecurrencePanelVisibility();
+    }
+
+    /** @param {string} startDate @param {RecurrenceRule} recurrence */
+    function createRecurringTemplate({ title, time, tags, isPower, duration, startDate, recurrence }) {
+      const tmpl = {
+        id: uid(),
+        title,
+        time,
+        tags: [...tags],
+        isPower,
+        duration,
+        recurrence,
+        startDate,
+        enabled: true,
+        createdAt: Date.now(),
+      };
+      recurringTemplates.push(tmpl);
+      return tmpl;
+    }
+
+    /** @param {RecurringTemplate} tmpl */
+    function updateRecurringTemplate(tmpl, { title, time, tags, isPower, duration, startDate, recurrence }) {
+      Object.assign(tmpl, { title, time, tags: [...tags], isPower, duration, startDate, recurrence, enabled: true });
+    }
+
     function openDeleteConfirm(task) {
       pendingDeleteTaskId = task.id;
+      pendingDeleteRecurrenceId = task.recurrenceId || null;
       const createdDay = fullDate(toISO(new Date(task.createdAt)));
       const completedDay = task.completedAt
         ? fullDate(toISO(new Date(task.completedAt)))
@@ -2803,17 +3276,27 @@
       if (scheduledDay !== createdDay) detailParts.push(`Scheduled ${scheduledDay}`);
       if (completedDay) detailParts.push(`Completed ${completedDay}`);
       detailParts.push(tagLabel);
+      const tmpl = pendingDeleteRecurrenceId
+        ? recurringTemplates.find((t) => t.id === pendingDeleteRecurrenceId)
+        : null;
+      if (tmpl) detailParts.push(describeRecurrence(tmpl.recurrence));
       el("deleteConfirmTitle").textContent = task.isPower ? `⚡ ${task.title}` : task.title;
       el("deleteConfirmDetails").textContent = detailParts.join(" · ");
-      el("deleteConfirmImpact").textContent =
-        "This permanently removes the task from history, dashboard stats (created, completed, and time tracking), and cannot be undone.";
+      const isRecurring = Boolean(pendingDeleteRecurrenceId);
+      el("deleteConfirmHeading").textContent = isRecurring ? "Delete recurring task?" : "Delete this task?";
+      el("deleteConfirmImpact").textContent = isRecurring
+        ? "Remove just this day's occurrence, or delete the entire repeating series and all its future and past instances."
+        : "This permanently removes the task from history, dashboard stats (created, completed, and time tracking), and cannot be undone.";
+      el("deleteConfirmRecurringActions").classList.toggle("hidden", !isRecurring);
+      el("deleteConfirmStandardActions").classList.toggle("hidden", isRecurring);
       deleteConfirmModal.classList.remove("hidden");
       deleteConfirmModal.classList.add("flex");
-      el("deleteConfirmCancelBtn").focus();
+      (isRecurring ? el("deleteConfirmOccurrenceBtn") : el("deleteConfirmCancelBtn")).focus();
     }
 
     function closeDeleteConfirm() {
       pendingDeleteTaskId = null;
+      pendingDeleteRecurrenceId = null;
       deleteConfirmModal.classList.add("hidden");
       deleteConfirmModal.classList.remove("flex");
     }
@@ -2965,7 +3448,12 @@
         return;
       }
       ui.editingTaskId = taskId;
+      ui.editingRecurrenceId = null;
       const task = taskId ? tasks.find((t) => t.id === taskId) : null;
+      const tmpl = task?.recurrenceId
+        ? recurringTemplates.find((t) => t.id === task.recurrenceId)
+        : null;
+      if (tmpl) ui.editingRecurrenceId = tmpl.id;
 
       el("taskModalTitle").textContent = task ? "Edit task" : "New task";
       taskDeleteBtn.classList.toggle("hidden", !task);
@@ -2980,9 +3468,14 @@
       // further into the past.
       taskDateInput.min = todayISO();
       taskDateInput.value = task ? task.date : (presetDate || addDaysISO(todayISO(), ui.dayOffset));
+      setRecurrenceModalFromTemplate(tmpl);
+      if (!tmpl && !task) {
+        setSelectedRecurrenceDays([isoToDate(taskDateInput.value).getDay()]);
+      }
       syncDateDisplay();
       el("taskTagsError").classList.add("hidden");
       el("taskDurationError").classList.add("hidden");
+      el("taskRecurrenceDaysError").classList.add("hidden");
       renderTagLibraryChips();
 
       taskModal.classList.remove("hidden");
@@ -2993,6 +3486,7 @@
     function closeTaskModal() {
       dismissDatePicker();
       ui.editingTaskId = null;
+      ui.editingRecurrenceId = null;
       taskModal.classList.add("hidden");
       taskModal.classList.remove("flex");
     }
@@ -3037,14 +3531,53 @@
       el("taskTagsError").classList.add("hidden");
       addTagsToLibrary(newTags);
 
+      const recurrence = readRecurrenceRuleFromModal();
+      if (taskRepeatInput.checked && !recurrence) {
+        el("taskRecurrenceDaysError").classList.remove("hidden");
+        return;
+      }
+      el("taskRecurrenceDaysError").classList.add("hidden");
+
       if (ui.editingTaskId) {
         const task = tasks.find((t) => t.id === ui.editingTaskId);
         if (task) {
-          if (task.date !== date) {
-            task.order = tasksForDay(date).length;
+          if (task.date !== date) task.order = tasksForDay(date).length;
+
+          if (recurrence) {
+            let tmpl = ui.editingRecurrenceId
+              ? recurringTemplates.find((t) => t.id === ui.editingRecurrenceId)
+              : null;
+            if (tmpl) {
+              updateRecurringTemplate(tmpl, { title, time, tags, isPower, duration, startDate: date, recurrence });
+              pruneFutureRecurringInstances(tmpl);
+              syncRecurringInstancesFromTemplate(tmpl);
+            } else {
+              tmpl = createRecurringTemplate({ title, time, tags, isPower, duration, startDate: date, recurrence });
+            }
+            Object.assign(task, {
+              title, date, time, tags, isPower, duration,
+              recurrenceId: tmpl.id,
+              recurrenceDate: date,
+            });
+          } else if (ui.editingRecurrenceId) {
+            detachRecurringSeries(ui.editingRecurrenceId);
+            Object.assign(task, { title, date, time, tags, isPower, duration });
+            delete task.recurrenceId;
+            delete task.recurrenceDate;
+          } else {
+            Object.assign(task, { title, date, time, tags, isPower, duration });
           }
-          Object.assign(task, { title, date, time, tags, isPower, duration });
         }
+      } else if (recurrence) {
+        const tmpl = createRecurringTemplate({ title, time, tags, isPower, duration, startDate: date, recurrence });
+        tasks.push({
+          id: uid(), title, date, time, tags, isPower, duration, spent: 0,
+          completed: false, completedAt: null,
+          createdAt: Date.now(),
+          order: tasksForDay(date).length,
+          recurrenceId: tmpl.id,
+          recurrenceDate: date,
+        });
       } else {
         tasks.push({
           id: uid(), title, date, time, tags, isPower, duration, spent: 0,
@@ -3073,8 +3606,45 @@
       closeDeleteConfirm();
       await deleteTaskById(id);
     });
+    el("deleteConfirmOccurrenceBtn").addEventListener("click", async () => {
+      if (!pendingDeleteTaskId) return;
+      const id = pendingDeleteTaskId;
+      closeDeleteConfirm();
+      await deleteTaskById(id);
+    });
+    el("deleteConfirmSeriesBtn").addEventListener("click", async () => {
+      if (!pendingDeleteRecurrenceId) return;
+      const recurrenceId = pendingDeleteRecurrenceId;
+      closeDeleteConfirm();
+      await deleteRecurringSeriesById(recurrenceId);
+    });
     el("deleteConfirmCancelBtn").addEventListener("click", closeDeleteConfirm);
+    el("deleteConfirmRecurringCancelBtn").addEventListener("click", closeDeleteConfirm);
     el("deleteConfirmBackdrop").addEventListener("click", closeDeleteConfirm);
+
+    taskRepeatInput.addEventListener("change", updateRecurrencePanelVisibility);
+    taskRecurrenceFreq.addEventListener("change", () => {
+      if (taskRecurrenceFreq.value === "weekly" && !getSelectedRecurrenceDays().length) {
+        setSelectedRecurrenceDays([isoToDate(taskDateInput.value || todayISO()).getDay()]);
+      }
+      updateRecurrenceFreqPanels();
+      updateRecurrenceSummary();
+    });
+    taskRecurrenceDayOfMonth.addEventListener("input", updateRecurrenceSummary);
+    taskRecurrenceDays.addEventListener("click", (e) => {
+      const btn = e.target.closest(".recurrence-day-btn");
+      if (!btn) return;
+      e.preventDefault();
+      btn.classList.toggle("is-active");
+      el("taskRecurrenceDaysError").classList.add("hidden");
+      updateRecurrenceSummary();
+    });
+    taskDateInput.addEventListener("change", () => {
+      if (taskRepeatInput.checked && taskRecurrenceFreq.value === "weekly" && !getSelectedRecurrenceDays().length) {
+        setSelectedRecurrenceDays([isoToDate(taskDateInput.value || todayISO()).getDay()]);
+        updateRecurrenceSummary();
+      }
+    });
 
     taskTimeInput.addEventListener("blur", () => {
       const parsed = parseTimeInput(taskTimeInput.value);
@@ -3168,6 +3738,7 @@
       syncState.applyingRemote = true;
       try {
         tasks = normalizeTasks(Array.isArray(doc.tasks) ? doc.tasks : []);
+        recurringTemplates = normalizeRecurringTemplates(doc.recurringTemplates);
         const cloudTags = Array.isArray(doc.tags) ? doc.tags.map((x) => capitalizeFirst(String(x))) : [];
         tagLibrary = [...new Set([...cloudTags, ...tasks.flatMap((t) => t.tags)])]
           .sort((a, b) => a.localeCompare(b));
@@ -3177,6 +3748,7 @@
         try {
           localStorage.setItem(activeStorageKeys().tasks, JSON.stringify(tasks));
           localStorage.setItem(activeStorageKeys().tags, JSON.stringify(tagLibrary));
+          localStorage.setItem(activeStorageKeys().recurring, JSON.stringify(recurringTemplates));
           localStorage.setItem(dayNotesStorageKey(), JSON.stringify(dayNotes));
         } catch { /* full */ }
         writeBackup();
@@ -3198,7 +3770,7 @@
       try {
         const { error } = await sbClient.from("lists").upsert({
           user_id: syncState.user.id,
-          data: { tasks, tags: tagLibrary, dayNotes, updatedAt: meta.updatedAt, deviceId: meta.deviceId },
+          data: { tasks, tags: tagLibrary, dayNotes, recurringTemplates, updatedAt: meta.updatedAt, deviceId: meta.deviceId },
           updated_at: new Date().toISOString(),
         });
         setSyncStatus(error ? "offline" : "synced");
@@ -3273,6 +3845,7 @@
       syncState.user = null;
       stopRealtime();
       tasks = [];
+      recurringTemplates = [];
       tagLibrary = [];
       dayNotes = {};
       setSyncStatus("local");
@@ -3520,8 +4093,22 @@
       gate.classList.toggle("hidden", !locked);
     }
 
+    let behindScheduleTick = null;
+    function syncBehindScheduleTick() {
+      const shouldTick = ui.view === "board" && ui.dayOffset === 0;
+      if (shouldTick && !behindScheduleTick) {
+        behindScheduleTick = setInterval(() => {
+          if (ui.view === "board") renderBoard();
+        }, 30_000);
+      } else if (!shouldTick && behindScheduleTick) {
+        clearInterval(behindScheduleTick);
+        behindScheduleTick = null;
+      }
+    }
+
     function render() {
       updateAuthGate();
+      if (ensureRecurringInstances()) saveTasks();
       for (const tab of document.querySelectorAll(".viewTab")) {
         const active = tab.dataset.view === ui.view;
         tab.classList.toggle("bg-paper-50", active);
@@ -3537,6 +4124,7 @@
       if (ui.view === "board") renderBoard();
       else if (ui.view === "history") renderHistory();
       else renderDashboard();
+      syncBehindScheduleTick();
     }
 
     // ---------- Boot ----------
@@ -3553,6 +4141,7 @@
       // user signs in — otherwise anyone opening the app sees the last local copy.
       if (!sbClient) {
         tasks = loadTasks();
+        recurringTemplates = loadRecurringTemplates();
         tagLibrary = loadTagLibrary();
         dayNotes = loadDayNotes();
         try { localStorage.setItem(TAGS_KEY, JSON.stringify(tagLibrary)); } catch { /* full */ }
