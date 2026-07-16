@@ -886,7 +886,8 @@
      * @typedef {{
      *   id: string, title: string, time: string, tags: string[],
      *   isPower: boolean, duration: number, recurrence: RecurrenceRule,
-     *   startDate: string, enabled: boolean, createdAt: number
+     *   startDate: string, enabled: boolean, createdAt: number,
+     *   skippedDates: string[]
      * }} RecurringTemplate
      */
 
@@ -1058,6 +1059,7 @@
           startDate: dates[0],
           enabled: true,
           createdAt: sample.createdAt,
+          skippedDates: [],
         });
         changed = true;
       }
@@ -1090,6 +1092,7 @@
           startDate: dates[0],
           enabled: true,
           createdAt: Math.min(...group.map((t) => t.createdAt)),
+          skippedDates: [],
         };
         recurringTemplates.push(tmpl);
         for (const t of group) {
@@ -1186,8 +1189,9 @@
       for (const tmpl of recurringTemplates) {
         if (!tmpl.enabled) continue;
         let iso = tmpl.startDate > start ? tmpl.startDate : start;
+        const skipped = new Set(tmpl.skippedDates || []);
         while (iso <= end) {
-          if (matchesRecurrence(tmpl, iso)) {
+          if (matchesRecurrence(tmpl, iso) && !skipped.has(iso)) {
             const exists = tasks.some(
               (t) => t.recurrenceId === tmpl.id && t.recurrenceDate === iso
             );
@@ -1242,6 +1246,21 @@
         task.isPower = resolvePowerForDay(task.date, tmpl.isPower, task.id);
         task.duration = tmpl.duration;
       }
+    }
+
+    /** Remember a deleted occurrence so ensureRecurringInstances won't recreate it. */
+    function skipRecurrenceOccurrence(task) {
+      if (!task.recurrenceId) return false;
+      const tmpl = recurringTemplates.find((t) => t.id === task.recurrenceId);
+      if (!tmpl) return false;
+      const iso = task.recurrenceDate || task.date;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+      if (!Array.isArray(tmpl.skippedDates)) tmpl.skippedDates = [];
+      if (!tmpl.skippedDates.includes(iso)) {
+        tmpl.skippedDates.push(iso);
+        tmpl.skippedDates.sort();
+      }
+      return true;
     }
 
     function deleteRecurringSeries(recurrenceId) {
@@ -1368,6 +1387,9 @@
           startDate: /^\d{4}-\d{2}-\d{2}$/.test(t.startDate) ? t.startDate : todayISO(),
           enabled: t.enabled !== false,
           createdAt: Number(t.createdAt ?? Date.now()),
+          skippedDates: Array.isArray(t.skippedDates)
+            ? [...new Set(t.skippedDates.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort()
+            : [],
         };
       });
     }
@@ -3377,6 +3399,9 @@
     async function deleteTaskById(taskId) {
       const removed = tasks.find((t) => t.id === taskId);
       if (!removed) return;
+      // Single-occurrence deletes must be remembered, otherwise the next
+      // reconcile recreates the same overdue copy in the Incomplete tray.
+      skipRecurrenceOccurrence(removed);
       tasks = tasks.filter((t) => t.id !== taskId);
       pruneDayNotesAfterDelete(removed);
       saveTasks();
@@ -3498,6 +3523,7 @@
         startDate,
         enabled: true,
         createdAt: Date.now(),
+        skippedDates: [],
       };
       recurringTemplates.push(tmpl);
       return tmpl;
