@@ -650,6 +650,9 @@
       <p id="syncUnavailable" class="mt-4 hidden text-sm text-ink-400">
         The sync library could not load (no internet?). The app keeps working locally and will offer sync next time it loads online.
       </p>
+      <p id="syncReadOnlyNotice" class="mt-4 hidden rounded-xl bg-ochre-50 px-3 py-2 text-xs text-ink-600 ring-1 ring-ochre-200">
+        This is a local or non-deployed copy. It can download cloud data but will never upload changes, so it cannot overwrite the GitHub-deployed app.
+      </p>
     </div>
   </div>
 
@@ -2628,7 +2631,7 @@
       axis: "#9C9081",
       crosshair: "rgba(38, 33, 25, 0.12)",
     };
-    const DASH_CHART = { w: 800, h: 240, pad: { t: 18, r: 20, b: 40, l: 44 } };
+    const DASH_CHART = { w: 800, h: 240, pad: { t: 34, r: 20, b: 40, l: 44 } };
     let dashChartPoints = [];
     let dashChartPowerPoints = [];
     let dashChartHover = -1;
@@ -2757,7 +2760,8 @@
     function dashChartPowerStreakSVG(powerPoints, points) {
       if (ui.dashPowerOnly || !powerPoints.length || !dashChartIsDaily(points)) return "";
       const color = DASH_CHART_COLORS.power;
-      const topY = (DASH_CHART.pad.t + 6).toFixed(1);
+      // Sit in the reserved band above the plot so activity lines never cross it.
+      const topY = "12";
       const count = points.length;
       const isHit = (i) => dashChartPowerDayHit(powerPoints[i]);
       let lines = "";
@@ -3982,14 +3986,30 @@
      * deviceId }. Last write wins; realtime pushes changes to other devices
      * instantly. localStorage stays the offline cache, so the app works
      * without internet and reconciles when back online.
+     *
+     * SAFETY: only the deployed GitHub Pages origin may WRITE to Supabase.
+     * Opening index.html via file://, localhost, or any other host is
+     * read-only — it must never overwrite production cloud data.
      * ===================================================================== */
     const SUPABASE_URL = "https://zsismqppqopiscomlhrr.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpzaXNtcXBwcW9waXNjb21saHJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyODQ0MDcsImV4cCI6MjA5Njg2MDQwN30.z9g_dMmW3NffCHGNdApwI18ixaJrrY3D0Cx0apDZMsg";
     const META_KEY = "powerlist_meta_v1";
+    // Hosts allowed to upsert into the shared Supabase project.
+    const CLOUD_WRITE_HOST_SUFFIXES = [".github.io"];
 
     const sbClient = (typeof window.supabase !== "undefined" && window.supabase.createClient)
       ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
       : null;
+
+    /** True only on the deployed HTTPS GitHub Pages site. */
+    function canWriteToCloud() {
+      if (location.protocol !== "https:") return false;
+      const host = String(location.hostname || "").toLowerCase();
+      if (!host || host === "localhost" || host === "127.0.0.1" || host === "[::1]") return false;
+      return CLOUD_WRITE_HOST_SUFFIXES.some(
+        (suffix) => host === suffix.slice(1) || host.endsWith(suffix)
+      );
+    }
 
     const syncState = {
       user: null,
@@ -4027,6 +4047,7 @@
         syncing: "bg-ochre-400",
         offline: "bg-clay-500",
         local: "bg-ink-300",
+        readonly: "bg-ochre-400",
       };
       el("syncDot").className =
         "absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-paper-50 " +
@@ -4036,12 +4057,14 @@
         syncing: "Syncing…",
         offline: "Offline — will sync when back online",
         local: "Sign in to view your tasks",
+        readonly: "Local copy — downloads only, never uploads to cloud",
       }[status] || "Sync";
       el("syncStateLabel").textContent = {
         synced: "All changes synced. Other devices update live.",
         syncing: "Syncing…",
         offline: "Offline — changes are saved locally and will sync when you're back online.",
         local: "Working locally on this device.",
+        readonly: "Read-only cloud access on this copy. Edits stay on this device and are never uploaded.",
       }[status] || "";
     }
 
@@ -4070,13 +4093,14 @@
     }
 
     function schedulePush() {
-      if (!sbClient || !syncState.user) return;
+      if (!sbClient || !syncState.user || !canWriteToCloud()) return;
       clearTimeout(syncState.pushTimer);
       syncState.pushTimer = setTimeout(pushToCloud, 800);
     }
 
     async function pushToCloud() {
-      if (!sbClient || !syncState.user) return;
+      // Hard stop: local file:// / localhost / non-Pages origins must never upsert.
+      if (!sbClient || !syncState.user || !canWriteToCloud()) return;
       setSyncStatus("syncing");
       try {
         const { error } = await sbClient.from("lists").upsert({
@@ -4097,9 +4121,20 @@
         const { data, error } = await sbClient
           .from("lists").select("data").eq("user_id", syncState.user.id).maybeSingle();
         if (error) { setSyncStatus("offline"); return; }
-        if (!data) { await pushToCloud(); return; } // first device seeds the cloud
+        if (!data) {
+          // Never seed production from a Desktop / localhost copy.
+          if (!canWriteToCloud()) { setSyncStatus("readonly"); return; }
+          await pushToCloud();
+          return;
+        }
         const doc = data.data || {};
         const cloudUpdatedAt = Number(doc.updatedAt) || 0;
+        if (!canWriteToCloud()) {
+          // Read-only origin: adopt newer cloud data, never push older local cache.
+          if (cloudUpdatedAt > meta.updatedAt) adoptCloudDoc(doc);
+          setSyncStatus("readonly");
+          return;
+        }
         if (cloudUpdatedAt > meta.updatedAt) adoptCloudDoc(doc);
         else if (cloudUpdatedAt < meta.updatedAt) { await pushToCloud(); return; }
         setSyncStatus("synced");
@@ -4129,9 +4164,12 @@
 
     function updateSyncModalUI() {
       const signedIn = Boolean(syncState.user);
+      const writeOk = canWriteToCloud();
       el("syncSignedOut").classList.toggle("hidden", signedIn || !sbClient);
       el("syncSignedIn").classList.toggle("hidden", !signedIn);
       el("syncUnavailable").classList.toggle("hidden", Boolean(sbClient));
+      const notice = el("syncReadOnlyNotice");
+      if (notice) notice.classList.toggle("hidden", writeOk || !sbClient);
     }
 
     async function handleSignedIn(user) {
@@ -4144,9 +4182,12 @@
       loadUserCacheOnly(user.id);
       dayNotes = loadDayNotes();
       updateSyncModalUI();
-      render();
+      // Suppress markLocalChange during first paint so reconcile cannot bump
+      // updatedAt and accidentally win a last-write-wins push over newer cloud data.
+      syncState.applyingRemote = true;
+      try { render(); } finally { syncState.applyingRemote = false; }
       await pullFromCloud();
-      if (tasks.length === 0 && tryMigrateLegacy(user.id)) await pushToCloud();
+      if (canWriteToCloud() && tasks.length === 0 && tryMigrateLegacy(user.id)) await pushToCloud();
       render();
       startRealtime();
       setSyncModalOpen(false);
