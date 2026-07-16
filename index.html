@@ -1125,6 +1125,16 @@
       }
     }
 
+    /** First date on/after `fromIso` that matches the template schedule. */
+    function firstMatchingRecurrenceDate(tmpl, fromIso) {
+      let iso = fromIso < tmpl.startDate ? tmpl.startDate : fromIso;
+      for (let i = 0; i < 400; i++) {
+        if (matchesRecurrence(tmpl, iso)) return iso;
+        iso = addDaysISO(iso, 1);
+      }
+      return tmpl.startDate;
+    }
+
     /** @param {RecurrenceRule} recurrence */
     function describeRecurrence(recurrence) {
       switch (recurrence.freq) {
@@ -3925,17 +3935,23 @@
             if (tmpl) {
               updateRecurringTemplate(tmpl, { title, time, tags, isPower, duration, startDate: date, recurrence });
               syncRecurringInstancesFromTemplate(tmpl);
+              Object.assign(task, {
+                title, time, tags, duration,
+                isPower: resolvePowerForDay(task.date, wantsPower, task.id),
+              });
             } else {
+              // Convert this one-off into the series' first occurrence — don't spawn a duplicate.
               tmpl = createRecurringTemplate({ title, time, tags, isPower, duration, startDate: date, recurrence });
-              if (task.recurrenceId !== tmpl.id) {
-                Object.assign(task, { recurrenceId: tmpl.id });
-              }
+              const firstIso = firstMatchingRecurrenceDate(tmpl, date);
+              if (task.date !== firstIso) task.order = tasks.filter((t) => t.date === firstIso && t.id !== task.id).length;
+              Object.assign(task, {
+                title, time, tags, duration,
+                date: firstIso,
+                recurrenceId: tmpl.id,
+                recurrenceDate: firstIso,
+                isPower: resolvePowerForDay(firstIso, wantsPower, task.id),
+              });
             }
-            Object.assign(task, {
-              title, time, tags,
-              isPower: resolvePowerForDay(task.date, wantsPower, task.id),
-              duration,
-            });
           } else if (ui.editingRecurrenceId) {
             stopRecurringSeries(ui.editingRecurrenceId, task.id);
             Object.assign(task, { title, date, time, tags, isPower, duration });
