@@ -916,7 +916,7 @@
       modalSelectedTag: null,   // single tag chosen in task modal
       dashScope: "completed",   // "completed" | "all"
       dashPowerOnly: false,     // dashboard: statistics for power tasks only
-      dashChartRange: "30",     // "7" | "14" | "30" | "90" | "all" | "custom"
+      dashChartRange: "7",      // "7" | "14" | "30" | "90" | "all" | "custom"
       dashChartFrom: "",
       dashChartTo: "",
       dashChartMetric: "activity", // "activity" | "time" | "efficiency"
@@ -1828,8 +1828,47 @@
       return nowMinutes() > end;
     }
     function resizeDayNoteInput(textarea) {
+      // Must run while attached — detached textareas report a tiny scrollHeight
+      // and that wrong inline height sticks after the board rebuilds.
+      if (!textarea?.isConnected) return;
       textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
+      const next = textarea.scrollHeight;
+      if (next > 0) textarea.style.height = `${next}px`;
+    }
+    function resizeExpandedDayNotes() {
+      columnsEl
+        .querySelectorAll(".dayNotePanel:not(.hidden) .dayNoteInput")
+        .forEach(resizeDayNoteInput);
+    }
+    function captureDayNoteFocus() {
+      const active = document.activeElement;
+      if (!active?.classList?.contains("dayNoteInput")) return null;
+      const date =
+        active.dataset.date ||
+        active.closest("[data-date]")?.dataset.date ||
+        null;
+      if (!date) return null;
+      return {
+        date,
+        start: active.selectionStart,
+        end: active.selectionEnd,
+      };
+    }
+    function restoreDayNoteFocus(snapshot) {
+      if (!snapshot?.date) return;
+      const ta = columnsEl.querySelector(
+        `.dayNoteInput[data-date="${snapshot.date}"]`
+      );
+      if (!ta) return;
+      ta.focus({ preventScroll: true });
+      try {
+        const len = ta.value.length;
+        const start = Math.min(snapshot.start ?? len, len);
+        const end = Math.min(snapshot.end ?? start, len);
+        ta.setSelectionRange(start, end);
+      } catch {
+        /* ignore unsupported selection ranges */
+      }
     }
     function buildGapBubble(minutes) {
       if (minutes <= 0) return null;
@@ -1941,11 +1980,16 @@
           ? "bg-moss-100 text-moss-700 ring-moss-500/40 hover:bg-moss-200"
           : "bg-paper-50 text-ink-400 ring-ink-900/10 shadow-card hover:bg-paper-200");
 
+      const noteFocus = captureDayNoteFocus();
+
       columnsEl.innerHTML = "";
       for (let i = 0; i < VISIBLE_DAYS; i++) {
         const iso = addDaysISO(start, i);
         columnsEl.appendChild(buildColumn(iso));
       }
+      // Remeasure after attach — buildColumn cannot size notes while detached.
+      resizeExpandedDayNotes();
+      restoreDayNoteFocus(noteFocus);
 
       renderTray();
     }
@@ -2024,7 +2068,7 @@
           </div>
         </header>
         <div class="dayNotePanel ${noteExpanded ? "" : "hidden"} mb-2 px-1">
-          <textarea class="dayNoteInput w-full resize-none overflow-y-hidden rounded-xl border-0 bg-paper-200/60 px-3 py-2 text-xs text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" rows="1" placeholder="Day note…">${escapeHTML(dayNotes[iso] || "")}</textarea>
+          <textarea class="dayNoteInput w-full resize-none overflow-y-hidden rounded-xl border-0 bg-paper-200/60 px-3 py-2 text-xs text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" rows="1" data-date="${iso}" placeholder="Day note…">${escapeHTML(dayNotes[iso] || "")}</textarea>
         </div>
         <div class="taskList flex flex-1 flex-col gap-2 rounded-xl p-0.5 transition" data-dropzone="day" data-date="${iso}"></div>
       `;
@@ -2072,7 +2116,6 @@
         saveDayNotes();
         resizeDayNoteInput(noteInput);
       });
-      if (noteExpanded) resizeDayNoteInput(noteInput);
 
       attachDropzone(listEl);
       return col;
@@ -2828,17 +2871,15 @@
       return [["efficiency", DASH_CHART_COLORS.efficiency]];
     }
 
-    function dashChartSeriesDots(points, metric, maxVal, singleDayOffset) {
+    function dashChartSeriesDots(points, metric, maxVal) {
       const keys = dashChartDotKeys(metric);
       let html = "";
       for (let i = 0; i < points.length; i++) {
         const p = points[i];
-        const baseX = dashChartX(i, points.length);
-        keys.forEach(([key, color], ki) => {
-          let x = baseX;
-          if (singleDayOffset && keys.length > 1) x += ki === 0 ? -12 : 12;
+        const x = dashChartX(i, points.length).toFixed(1);
+        keys.forEach(([key, color]) => {
           html +=
-            `<circle cx="${x.toFixed(1)}" cy="${dashChartY(p[key], maxVal).toFixed(1)}" r="5.5" fill="${color}" stroke="#FCF8EC" stroke-width="2.5" />`;
+            `<circle cx="${x}" cy="${dashChartY(p[key], maxVal).toFixed(1)}" r="5.5" fill="${color}" stroke="#FCF8EC" stroke-width="2.5" />`;
         });
       }
       return html;
@@ -3027,7 +3068,7 @@
       const isSingleDay = dashChartPoints.length === 1;
       const hoverIdx = dashChartHover >= 0 ? dashChartHover : -1;
       const seriesDots = isSingleDay
-        ? dashChartSeriesDots(dashChartPoints, metric, maxVal, metric === "activity")
+        ? dashChartSeriesDots(dashChartPoints, metric, maxVal)
         : "";
       const hoverDots = !isSingleDay && hoverIdx >= 0 ? (() => {
         const p = dashChartPoints[hoverIdx];
@@ -4476,7 +4517,11 @@
       const shouldTick = ui.view === "board" && ui.dayOffset === 0;
       if (shouldTick && !behindScheduleTick) {
         behindScheduleTick = setInterval(() => {
-          if (ui.view === "board") renderBoard();
+          if (ui.view !== "board") return;
+          // Don't tear down the board mid-edit — height/focus restore still
+          // covers cloud sync rebuilds, but the 30s tick can wait.
+          if (document.activeElement?.classList?.contains("dayNoteInput")) return;
+          renderBoard();
         }, 30_000);
       } else if (!shouldTick && behindScheduleTick) {
         clearInterval(behindScheduleTick);
