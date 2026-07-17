@@ -1753,16 +1753,47 @@
     function powerCompletedCount(iso) {
       return completedOn(iso).filter((t) => t.isPower).length;
     }
+    /**
+     * Power slots used on a day (max POWER_GOAL).
+     * Counts every power task scheduled for that day (done or not), plus any
+     * power task completed that day even if it was scheduled earlier — so
+     * finishing overdue power work still fills today's 5-slot budget.
+     */
     function powerTaskCountForDay(iso, excludeTaskId = null) {
-      return tasks.filter(
-        (t) => t.date === iso && t.isPower && t.id !== excludeTaskId
-      ).length;
+      const ids = new Set();
+      for (const t of tasks) {
+        if (!t.isPower || t.id === excludeTaskId) continue;
+        if (t.date === iso) {
+          ids.add(t.id);
+          continue;
+        }
+        if (t.completed && t.completedAt && toISO(new Date(t.completedAt)) === iso) {
+          ids.add(t.id);
+        }
+      }
+      return ids.size;
     }
     function canMarkAsPowerForDay(iso, excludeTaskId = null) {
       return powerTaskCountForDay(iso, excludeTaskId) < POWER_GOAL;
     }
     function resolvePowerForDay(iso, wantPower, excludeTaskId = null) {
       return Boolean(wantPower) && canMarkAsPowerForDay(iso, excludeTaskId);
+    }
+    /**
+     * Keep "power tasks accomplished today" at POWER_GOAL. If this completion
+     * would be a 6th+ power finish on its completion day, drop the power flag.
+     */
+    function enforcePowerCompletionCap(task) {
+      if (!task.completed || !task.isPower || !task.completedAt) return;
+      const day = toISO(new Date(task.completedAt));
+      const prior = tasks.filter((t) =>
+        t.id !== task.id
+        && t.isPower
+        && t.completed
+        && t.completedAt
+        && toISO(new Date(t.completedAt)) === day
+      ).length;
+      if (prior >= POWER_GOAL) task.isPower = false;
     }
     function isPowerDay(iso) {
       return powerCompletedCount(iso) >= POWER_GOAL;
@@ -2218,6 +2249,7 @@
       card.querySelector(".taskCheck").addEventListener("change", (e) => {
         task.completed = e.target.checked;
         task.completedAt = e.target.checked ? Date.now() : null;
+        if (task.completed) enforcePowerCompletionCap(task);
         saveTasks();
         render();
       });
@@ -2283,6 +2315,7 @@
           // Completing an overdue task counts for today in history.
           task.completed = true;
           task.completedAt = Date.now();
+          enforcePowerCompletionCap(task);
           saveTasks();
           render();
         });
@@ -2690,6 +2723,7 @@
       task.spent = Math.max(1, Math.round(elapsedMs / 60_000));
       task.completed = true;
       task.completedAt = Date.now();
+      enforcePowerCompletionCap(task);
       saveTasks();
       render();
     });
@@ -3408,6 +3442,7 @@
           histCheck.addEventListener("change", () => {
             task.completed = true;
             task.completedAt = isoToDate(iso).getTime() + 12 * 3_600_000;
+            enforcePowerCompletionCap(task);
             saveTasks();
             renderHistory();
             renderDashboard();
@@ -3798,8 +3833,8 @@
       const hint = el("taskPowerHint");
       if (hint) {
         hint.textContent = atLimit && !checked
-          ? `${POWER_GOAL} power tasks already on this day`
-          : `${count}/${POWER_GOAL} power tasks on this day`;
+          ? `${POWER_GOAL} power slots already used for this day (including completed)`
+          : `${count}/${POWER_GOAL} power slots used for this day`;
       }
       if (canToggle) el("taskPowerError").classList.add("hidden");
     }
@@ -3894,12 +3929,14 @@
       const wantsPower = taskPowerInput.checked;
       const recurrence = readRecurrenceRuleFromModal();
       const recurring = taskRepeatInput.checked && recurrence;
-      if (wantsPower && !recurring && !canMarkAsPowerForDay(date, ui.editingTaskId)) {
+      if (wantsPower && !canMarkAsPowerForDay(date, ui.editingTaskId)) {
         el("taskPowerError").classList.remove("hidden");
         syncModalPowerLimit();
         return;
       }
       el("taskPowerError").classList.add("hidden");
+      // Recurring templates may prefer power; each day's instance still goes
+      // through resolvePowerForDay so completed work keeps consuming the 5 slots.
       const isPower = recurring
         ? wantsPower
         : resolvePowerForDay(date, wantsPower, ui.editingTaskId);
