@@ -1884,6 +1884,34 @@
         .querySelectorAll(".dayNotePanel:not(.hidden) .dayNoteInput, .taskNotePanel:not(.hidden) .taskNoteInput")
         .forEach(resizeDayNoteInput);
     }
+    const NOTE_TOGGLE_BASE = "noteToggle grid h-6 w-6 shrink-0 place-items-center rounded-lg transition ";
+    const NOTE_TOGGLE_GREEN = "text-brand-600 hover:bg-paper-300/60";
+    const NOTE_TOGGLE_OPEN = "text-ink-400 hover:bg-paper-300/60";
+    const NOTE_TOGGLE_IDLE = "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ink-500";
+    /** Only one note editor may be open at a time — close every other panel. */
+    function closeOtherNotePanels(currentPanel = null) {
+      ui.expandedTaskNotes?.clear();
+      ui.expandedDayNotes?.clear();
+      document.querySelectorAll(".taskNotePanel, .dayNotePanel").forEach((panel) => {
+        if (panel === currentPanel || panel.classList.contains("hidden")) return;
+        panel.classList.add("hidden");
+        const card = panel.closest("[data-task-id]");
+        if (card) {
+          card.querySelector(".taskNoteChevron")?.classList.remove("rotate-180");
+          const toggle = card.querySelector(".noteToggle");
+          const input = panel.querySelector(".taskNoteInput");
+          if (toggle) {
+            toggle.setAttribute("aria-expanded", "false");
+            toggle.className = NOTE_TOGGLE_BASE +
+              (input && input.value.trim() ? NOTE_TOGGLE_GREEN : NOTE_TOGGLE_IDLE);
+          }
+        } else {
+          const col = panel.closest("section");
+          col?.querySelector(".dayNoteChevron")?.classList.remove("rotate-180");
+          col?.querySelector(".dayNoteToggle")?.setAttribute("aria-expanded", "false");
+        }
+      });
+    }
     function captureDayNoteFocus() {
       const active = document.activeElement;
       if (active?.classList?.contains("taskNoteInput")) {
@@ -2152,6 +2180,7 @@
         const nowHidden = notePanel.classList.toggle("hidden");
         if (nowHidden) ui.expandedDayNotes.delete(iso);
         else {
+          closeOtherNotePanels(notePanel);
           ui.expandedDayNotes.add(iso);
           noteInput.focus();
           resizeDayNoteInput(noteInput);
@@ -2258,10 +2287,8 @@
                     : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ochre-600"
               }">⚡</button>
             <button type="button" title="${hasNotes ? "Task note" : "Add a note"}" aria-label="Toggle task note" aria-expanded="${noteExpanded}"
-              class="noteToggle grid h-6 w-6 shrink-0 place-items-center rounded-lg transition ${
-                hasNotes || noteExpanded
-                  ? "text-brand-600 hover:bg-paper-300/60"
-                  : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ink-500"
+              class="${NOTE_TOGGLE_BASE}${
+                hasNotes ? NOTE_TOGGLE_GREEN : noteExpanded ? NOTE_TOGGLE_OPEN : NOTE_TOGGLE_IDLE
               }">
               <svg class="taskNoteChevron transition-transform duration-200 ${noteExpanded ? "rotate-180" : ""}" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -2309,17 +2336,26 @@
       const noteToggle = card.querySelector(".noteToggle");
       const notePanel = card.querySelector(".taskNotePanel");
       const noteInput = card.querySelector(".taskNoteInput");
+      const syncNoteToggleStyle = () => {
+        const hasText = Boolean(noteInput.value.trim());
+        const expanded = !notePanel.classList.contains("hidden");
+        noteToggle.className = NOTE_TOGGLE_BASE +
+          (hasText ? NOTE_TOGGLE_GREEN : expanded ? NOTE_TOGGLE_OPEN : NOTE_TOGGLE_IDLE);
+        noteToggle.title = hasText ? "Task note" : "Add a note";
+      };
       noteToggle.addEventListener("click", (e) => {
         e.stopPropagation();
         const nowHidden = notePanel.classList.toggle("hidden");
         if (nowHidden) ui.expandedTaskNotes.delete(task.id);
         else {
+          closeOtherNotePanels(notePanel);
           ui.expandedTaskNotes.add(task.id);
           noteInput.focus();
           resizeDayNoteInput(noteInput);
         }
         noteToggle.setAttribute("aria-expanded", String(!nowHidden));
         card.querySelector(".taskNoteChevron").classList.toggle("rotate-180", !nowHidden);
+        syncNoteToggleStyle();
       });
       noteInput.addEventListener("click", (e) => e.stopPropagation());
       // Text selection inside the note must not start a card drag.
@@ -2333,6 +2369,7 @@
         task.notes = noteInput.value;
         saveTasks();
         resizeDayNoteInput(noteInput);
+        syncNoteToggleStyle();
       });
 
       card.addEventListener("click", () => openTaskModal(task.id));
