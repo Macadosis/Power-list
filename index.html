@@ -870,7 +870,7 @@
      *   id: string, title: string, date: string, time: string,
      *   tags: string[], isPower: boolean, duration: number,
      *   spent: number, completed: boolean, completedAt: number|null,
-     *   createdAt: number, order: number,
+     *   createdAt: number, order: number, notes: string,
      *   recurrenceId?: string, recurrenceDate?: string
      * }} Task
      */
@@ -922,6 +922,7 @@
       dashChartMetric: "activity", // "activity" | "time" | "efficiency"
       expandedDayNotes: null,   // Set<iso> — days with the note field open
       expandedHistoryNotes: null, // Set<iso> — history note panels expanded
+      expandedTaskNotes: null,  // Set<taskId> — cards with the note field open
     };
 
     // ---------- Date helpers ----------
@@ -1220,6 +1221,7 @@
                 completedAt: null,
                 createdAt: Date.now(),
                 order: dayCount,
+                notes: "",
                 recurrenceId: tmpl.id,
                 recurrenceDate: iso,
               });
@@ -1363,6 +1365,7 @@
         completedAt: t.completedAt ? Number(t.completedAt) : null,
         createdAt: Number(t.createdAt ?? Date.now()),
         order: Number.isFinite(t.order) ? Number(t.order) : i,
+        notes: typeof t.notes === "string" ? t.notes : "",
         ...(t.recurrenceId ? { recurrenceId: String(t.recurrenceId) } : {}),
         ...(t.recurrenceDate ? { recurrenceDate: String(t.recurrenceDate) } : {}),
       }));
@@ -1878,11 +1881,18 @@
     }
     function resizeExpandedDayNotes() {
       columnsEl
-        .querySelectorAll(".dayNotePanel:not(.hidden) .dayNoteInput")
+        .querySelectorAll(".dayNotePanel:not(.hidden) .dayNoteInput, .taskNotePanel:not(.hidden) .taskNoteInput")
         .forEach(resizeDayNoteInput);
     }
     function captureDayNoteFocus() {
       const active = document.activeElement;
+      if (active?.classList?.contains("taskNoteInput")) {
+        return {
+          taskId: active.dataset.taskId,
+          start: active.selectionStart,
+          end: active.selectionEnd,
+        };
+      }
       if (!active?.classList?.contains("dayNoteInput")) return null;
       const date =
         active.dataset.date ||
@@ -1896,10 +1906,10 @@
       };
     }
     function restoreDayNoteFocus(snapshot) {
-      if (!snapshot?.date) return;
-      const ta = columnsEl.querySelector(
-        `.dayNoteInput[data-date="${snapshot.date}"]`
-      );
+      if (!snapshot?.date && !snapshot?.taskId) return;
+      const ta = snapshot.taskId
+        ? columnsEl.querySelector(`.taskNoteInput[data-task-id="${snapshot.taskId}"]`)
+        : columnsEl.querySelector(`.dayNoteInput[data-date="${snapshot.date}"]`);
       if (!ta) return;
       ta.focus({ preventScroll: true });
       try {
@@ -2217,6 +2227,10 @@
           </button>`);
       }
 
+      if (!ui.expandedTaskNotes) ui.expandedTaskNotes = new Set();
+      const hasNotes = Boolean((task.notes || "").trim());
+      const noteExpanded = ui.expandedTaskNotes.has(task.id);
+
       card.innerHTML = `
         <div class="flex items-start gap-2.5">
           <input type="checkbox" ${task.completed ? "checked" : ""} aria-label="Mark task complete"
@@ -2225,23 +2239,38 @@
             <p class="break-words text-sm font-medium leading-snug ${task.completed ? "text-ink-300 line-through" : behindSchedule ? "text-ink-300" : "text-ink-700"}">${timePrefix}${repeatPrefix}${escapeHTML(task.title)}</p>
             ${metaBits.length ? `<div class="mt-1.5 flex flex-wrap items-center gap-1.5">${metaBits.join("")}</div>` : ""}
           </div>
-          <button type="button" title="${
-              task.isPower
-                ? "Power task — click to unmark"
-                : powerAtLimit
-                  ? `Maximum ${POWER_GOAL} power tasks on this day`
-                  : "Mark as power task"
-            }"
-            aria-label="Toggle power task"
-            class="powerToggle mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg text-sm transition ${
-              task.isPower
-                ? behindSchedule
-                  ? grayPill
-                  : "bg-ochre-100 text-ochre-600 ring-1 ring-ochre-400/50"
-                : powerAtLimit
-                  ? "pointer-events-none opacity-0"
-                  : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ochre-600"
-            }">⚡</button>
+          <div class="flex shrink-0 flex-col items-center gap-0.5">
+            <button type="button" title="${
+                task.isPower
+                  ? "Power task — click to unmark"
+                  : powerAtLimit
+                    ? `Maximum ${POWER_GOAL} power tasks on this day`
+                    : "Mark as power task"
+              }"
+              aria-label="Toggle power task"
+              class="powerToggle mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg text-sm transition ${
+                task.isPower
+                  ? behindSchedule
+                    ? grayPill
+                    : "bg-ochre-100 text-ochre-600 ring-1 ring-ochre-400/50"
+                  : powerAtLimit
+                    ? "pointer-events-none opacity-0"
+                    : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ochre-600"
+              }">⚡</button>
+            <button type="button" title="${hasNotes ? "Task note" : "Add a note"}" aria-label="Toggle task note" aria-expanded="${noteExpanded}"
+              class="noteToggle grid h-6 w-6 shrink-0 place-items-center rounded-lg transition ${
+                hasNotes || noteExpanded
+                  ? "text-brand-600 hover:bg-paper-300/60"
+                  : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ink-500"
+              }">
+              <svg class="taskNoteChevron transition-transform duration-200 ${noteExpanded ? "rotate-180" : ""}" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="taskNotePanel ${noteExpanded ? "" : "hidden"} mt-2">
+          <textarea class="taskNoteInput w-full resize-none overflow-y-hidden rounded-lg border-0 bg-paper-200/60 px-2.5 py-1.5 text-xs text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" rows="1" data-task-id="${task.id}" placeholder="Note for this task…">${escapeHTML(task.notes || "")}</textarea>
         </div>
       `;
 
@@ -2277,6 +2306,35 @@
           startTaskTimer(task);
         });
       }
+      const noteToggle = card.querySelector(".noteToggle");
+      const notePanel = card.querySelector(".taskNotePanel");
+      const noteInput = card.querySelector(".taskNoteInput");
+      noteToggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const nowHidden = notePanel.classList.toggle("hidden");
+        if (nowHidden) ui.expandedTaskNotes.delete(task.id);
+        else {
+          ui.expandedTaskNotes.add(task.id);
+          noteInput.focus();
+          resizeDayNoteInput(noteInput);
+        }
+        noteToggle.setAttribute("aria-expanded", String(!nowHidden));
+        card.querySelector(".taskNoteChevron").classList.toggle("rotate-180", !nowHidden);
+      });
+      noteInput.addEventListener("click", (e) => e.stopPropagation());
+      // Text selection inside the note must not start a card drag.
+      noteInput.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        card.draggable = false;
+      });
+      noteInput.addEventListener("blur", () => { card.draggable = !task.completed; });
+      noteInput.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+      noteInput.addEventListener("input", () => {
+        task.notes = noteInput.value;
+        saveTasks();
+        resizeDayNoteInput(noteInput);
+      });
+
       card.addEventListener("click", () => openTaskModal(task.id));
       attachDragHandlers(card, task);
       return card;
@@ -4007,6 +4065,7 @@
           completed: false, completedAt: null,
           createdAt: Date.now(),
           order: tasksForDay(date).length,
+          notes: "",
         });
       }
 
@@ -4573,7 +4632,8 @@
           if (ui.view !== "board") return;
           // Don't tear down the board mid-edit — height/focus restore still
           // covers cloud sync rebuilds, but the 30s tick can wait.
-          if (document.activeElement?.classList?.contains("dayNoteInput")) return;
+          const activeCls = document.activeElement?.classList;
+          if (activeCls?.contains("dayNoteInput") || activeCls?.contains("taskNoteInput")) return;
           renderBoard();
         }, 30_000);
       } else if (!shouldTick && behindScheduleTick) {
