@@ -4147,11 +4147,11 @@
 
     el("taskModalCloseBtn").addEventListener("click", closeTaskModal);
     el("taskCancelBtn").addEventListener("click", closeTaskModal);
-    el("taskModalBackdrop").addEventListener("click", closeTaskModal);
+    // Task modal must stay open until X or Cancel — no backdrop / Escape dismiss.
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       if (!deleteConfirmModal.classList.contains("hidden")) { closeDeleteConfirm(); return; }
-      if (!taskModal.classList.contains("hidden")) closeTaskModal();
+      if (!taskModal.classList.contains("hidden")) return;
       const syncModal = el("syncModal");
       if (!syncModal.classList.contains("hidden")) {
         syncModal.classList.add("hidden");
