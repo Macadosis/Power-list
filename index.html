@@ -1902,6 +1902,34 @@
       if (!svg) return;
       svg.innerHTML = noteChevronMarkup(hasNotes);
     }
+    const noteScrollLock = { y: null };
+    function isCoarsePointer() {
+      return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+    }
+    function rememberNoteScroll() {
+      noteScrollLock.y = window.scrollY;
+    }
+    function restoreNoteScroll() {
+      const y = noteScrollLock.y;
+      noteScrollLock.y = null;
+      if (y == null) return;
+      const snap = () => window.scrollTo(0, y);
+      snap();
+      requestAnimationFrame(snap);
+      setTimeout(snap, 50);
+      setTimeout(snap, 150);
+    }
+    function blurNoteInput(input) {
+      if (input && document.activeElement === input) input.blur();
+    }
+    function focusNoteInput(input) {
+      if (!input || isCoarsePointer()) return;
+      input.focus({ preventScroll: true });
+    }
+    function closeNoteInput(input) {
+      blurNoteInput(input);
+      restoreNoteScroll();
+    }
     /** Only one note editor may be open at a time — close every other panel. */
     function closeOtherNotePanels(currentPanel = null) {
       ui.expandedTaskNotes?.clear();
@@ -1911,9 +1939,10 @@
         panel.classList.add("hidden");
         const card = panel.closest("[data-task-id]");
         if (card) {
+          const input = panel.querySelector(".taskNoteInput");
+          blurNoteInput(input);
           card.querySelector(".taskNoteChevron")?.classList.remove("rotate-180");
           const toggle = card.querySelector(".noteToggle");
-          const input = panel.querySelector(".taskNoteInput");
           if (toggle) {
             toggle.setAttribute("aria-expanded", "false");
             const hasText = Boolean(input && input.value.trim());
@@ -1924,6 +1953,7 @@
         } else {
           const col = panel.closest("section");
           const dayInput = panel.querySelector(".dayNoteInput");
+          blurNoteInput(dayInput);
           const hasText = Boolean(dayInput && dayInput.value.trim());
           const dayToggle = col?.querySelector(".dayNoteToggle");
           col?.querySelector(".dayNoteChevron")?.classList.remove("rotate-180");
@@ -2219,11 +2249,14 @@
       noteToggle.addEventListener("click", (e) => {
         e.stopPropagation();
         const nowHidden = notePanel.classList.toggle("hidden");
-        if (nowHidden) ui.expandedDayNotes.delete(iso);
-        else {
+        if (nowHidden) {
+          ui.expandedDayNotes.delete(iso);
+          closeNoteInput(noteInput);
+        } else {
+          rememberNoteScroll();
           closeOtherNotePanels(notePanel);
           ui.expandedDayNotes.add(iso);
-          noteInput.focus();
+          focusNoteInput(noteInput);
           resizeDayNoteInput(noteInput);
         }
         noteToggle.setAttribute("aria-expanded", String(!nowHidden));
@@ -2389,11 +2422,14 @@
       noteToggle.addEventListener("click", (e) => {
         e.stopPropagation();
         const nowHidden = notePanel.classList.toggle("hidden");
-        if (nowHidden) ui.expandedTaskNotes.delete(task.id);
-        else {
+        if (nowHidden) {
+          ui.expandedTaskNotes.delete(task.id);
+          closeNoteInput(noteInput);
+        } else {
+          rememberNoteScroll();
           closeOtherNotePanels(notePanel);
           ui.expandedTaskNotes.add(task.id);
-          noteInput.focus();
+          focusNoteInput(noteInput);
           resizeDayNoteInput(noteInput);
         }
         noteToggle.setAttribute("aria-expanded", String(!nowHidden));
