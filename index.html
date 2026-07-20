@@ -923,6 +923,7 @@
       expandedDayNotes: null,   // Set<iso> — days with the note field open
       expandedHistoryNotes: null, // Set<iso> — history note panels expanded
       expandedTaskNotes: null,  // Set<taskId> — cards with the note field open
+      expandedHistoryTaskNotes: null, // Set<taskId> — history task note panels expanded
     };
 
     // ---------- Date helpers ----------
@@ -1886,8 +1887,21 @@
     }
     const NOTE_TOGGLE_BASE = "noteToggle grid h-6 w-6 shrink-0 place-items-center rounded-lg transition ";
     const NOTE_TOGGLE_GREEN = "text-brand-600 hover:bg-paper-300/60";
-    const NOTE_TOGGLE_OPEN = "text-ink-400 hover:bg-paper-300/60";
-    const NOTE_TOGGLE_IDLE = "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ink-500";
+    const NOTE_TOGGLE_OPEN = "text-ink-300 hover:bg-paper-300/60 hover:text-ink-400";
+    const NOTE_TOGGLE_IDLE = "text-ink-300 hover:bg-paper-300/60 hover:text-ink-400";
+    const NOTE_CHEVRON_SINGLE =
+      `<path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />`;
+    const NOTE_CHEVRON_TRIPLE =
+      `<path d="M5 4l7 4.5 7-4.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />` +
+      `<path d="M5 10l7 4.5 7-4.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />` +
+      `<path d="M5 16l7 4.5 7-4.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />`;
+    function noteChevronMarkup(hasNotes) {
+      return hasNotes ? NOTE_CHEVRON_TRIPLE : NOTE_CHEVRON_SINGLE;
+    }
+    function setNoteChevron(svg, hasNotes) {
+      if (!svg) return;
+      svg.innerHTML = noteChevronMarkup(hasNotes);
+    }
     /** Only one note editor may be open at a time — close every other panel. */
     function closeOtherNotePanels(currentPanel = null) {
       ui.expandedTaskNotes?.clear();
@@ -1902,13 +1916,26 @@
           const input = panel.querySelector(".taskNoteInput");
           if (toggle) {
             toggle.setAttribute("aria-expanded", "false");
+            const hasText = Boolean(input && input.value.trim());
             toggle.className = NOTE_TOGGLE_BASE +
-              (input && input.value.trim() ? NOTE_TOGGLE_GREEN : NOTE_TOGGLE_IDLE);
+              (hasText ? NOTE_TOGGLE_GREEN : NOTE_TOGGLE_IDLE);
+            setNoteChevron(card.querySelector(".taskNoteChevron"), hasText);
           }
         } else {
           const col = panel.closest("section");
+          const dayInput = panel.querySelector(".dayNoteInput");
+          const hasText = Boolean(dayInput && dayInput.value.trim());
+          const dayToggle = col?.querySelector(".dayNoteToggle");
           col?.querySelector(".dayNoteChevron")?.classList.remove("rotate-180");
-          col?.querySelector(".dayNoteToggle")?.setAttribute("aria-expanded", "false");
+          if (dayToggle) {
+            dayToggle.setAttribute("aria-expanded", "false");
+            dayToggle.className =
+              "dayNoteToggle ml-auto grid h-5 w-5 shrink-0 place-items-center rounded-md transition " +
+              (hasText
+                ? "text-brand-600 hover:bg-paper-300/60"
+                : "text-ink-300 hover:bg-paper-300/60 hover:text-ink-400");
+            setNoteChevron(col.querySelector(".dayNoteChevron"), hasText);
+          }
         }
       });
     }
@@ -2094,6 +2121,7 @@
       const overlappingIds = overlappingTimedTaskIds(scheduleTasks);
       if (!ui.expandedDayNotes) ui.expandedDayNotes = new Set();
       const noteExpanded = ui.expandedDayNotes.has(iso);
+      const hasDayNoteText = hasDayNote(iso);
 
       const col = document.createElement("section");
       let frame;
@@ -2120,9 +2148,13 @@
           <div class="flex items-center gap-2">
             <span class="whitespace-nowrap text-[11px] font-extrabold uppercase tracking-widest ${labelColor}">${escapeHTML(dayLabel(iso))}</span>
             <span class="min-w-0 truncate text-xs font-semibold text-ink-400">${weekdayShort(iso)} · ${shortDate(iso)}</span>
-            <button type="button" class="dayNoteToggle ml-auto grid h-5 w-5 shrink-0 place-items-center rounded-md text-ink-400 transition hover:bg-paper-300/60 hover:text-ink-500" aria-label="Day note" aria-expanded="${noteExpanded}">
+            <button type="button" class="dayNoteToggle ml-auto grid h-5 w-5 shrink-0 place-items-center rounded-md transition ${
+              hasDayNoteText
+                ? "text-brand-600 hover:bg-paper-300/60"
+                : "text-ink-300 hover:bg-paper-300/60 hover:text-ink-400"
+            }" aria-label="Day note" aria-expanded="${noteExpanded}">
               <svg class="dayNoteChevron transition-transform duration-200 ${noteExpanded ? "rotate-180" : ""}" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                ${noteChevronMarkup(hasDayNoteText)}
               </svg>
             </button>
             <button type="button" data-add-for="${iso}" aria-label="Add task for ${escapeHTML(dayLabel(iso))}"
@@ -2175,6 +2207,15 @@
       const notePanel = col.querySelector(".dayNotePanel");
       const noteInput = col.querySelector(".dayNoteInput");
       const noteChevron = col.querySelector(".dayNoteChevron");
+      const syncDayNoteToggleStyle = () => {
+        const hasText = Boolean(noteInput.value.trim());
+        noteToggle.className =
+          "dayNoteToggle ml-auto grid h-5 w-5 shrink-0 place-items-center rounded-md transition " +
+          (hasText
+            ? "text-brand-600 hover:bg-paper-300/60"
+            : "text-ink-300 hover:bg-paper-300/60 hover:text-ink-400");
+        setNoteChevron(noteChevron, hasText);
+      };
       noteToggle.addEventListener("click", (e) => {
         e.stopPropagation();
         const nowHidden = notePanel.classList.toggle("hidden");
@@ -2195,6 +2236,7 @@
         else delete dayNotes[iso];
         saveDayNotes();
         resizeDayNoteInput(noteInput);
+        syncDayNoteToggleStyle();
       });
 
       attachDropzone(listEl);
@@ -2291,7 +2333,7 @@
                 hasNotes ? NOTE_TOGGLE_GREEN : noteExpanded ? NOTE_TOGGLE_OPEN : NOTE_TOGGLE_IDLE
               }">
               <svg class="taskNoteChevron transition-transform duration-200 ${noteExpanded ? "rotate-180" : ""}" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                ${noteChevronMarkup(hasNotes)}
               </svg>
             </button>
           </div>
@@ -2342,6 +2384,7 @@
         noteToggle.className = NOTE_TOGGLE_BASE +
           (hasText ? NOTE_TOGGLE_GREEN : expanded ? NOTE_TOGGLE_OPEN : NOTE_TOGGLE_IDLE);
         noteToggle.title = hasText ? "Task note" : "Add a note";
+        setNoteChevron(card.querySelector(".taskNoteChevron"), hasText);
       };
       noteToggle.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -3493,11 +3536,21 @@
       el("historyDayEmpty").classList.toggle("hidden", dayTasks.length > 0);
       el("historyIncompleteSection").classList.add("hidden");
 
+      if (!ui.expandedHistoryTaskNotes) ui.expandedHistoryTaskNotes = new Set();
+
+      const histNoteToggleClass = (hasText, expanded) =>
+        "histNoteToggle mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg transition " +
+        (hasText
+          ? "bg-moss-100 text-moss-600 ring-1 ring-moss-200 hover:bg-moss-200"
+          : expanded
+            ? "text-ink-400 hover:bg-paper-300/60"
+            : "text-ink-300/40 opacity-100 hover:bg-paper-300/60 hover:text-ink-500 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100");
+
       for (const { task, roles } of dayTasks) {
         const isCompleted = roles.includes("completed");
         const li = document.createElement("li");
         li.className =
-          "group flex items-start gap-3 rounded-xl p-3 ring-1 " +
+          "group rounded-xl p-3 ring-1 " +
           (isCompleted ? "bg-paper-200/60 ring-ink-900/10" : "bg-paper-50 ring-ochre-200");
 
         const statusIcon = isCompleted
@@ -3515,21 +3568,35 @@
             </span>`
           : `<span class="text-[11px] font-semibold text-ochre-600/80">${historyRoleLabel(roles)}</span>`;
 
+        const hasNotes = Boolean((task.notes || "").trim());
+        const noteExpanded = ui.expandedHistoryTaskNotes.has(task.id);
+
         li.innerHTML = `
-          ${statusIcon}
-          <div class="min-w-0 flex-1">
-            <p class="break-words text-sm font-medium text-ink-700">${task.isPower ? "⚡ " : ""}${escapeHTML(task.title)}</p>
-            <div class="mt-1 flex flex-wrap items-center gap-1.5">
-              ${metaLine}
-              ${task.tags.map((tag) => tagChipHTML(tag)).join("")}
+          <div class="flex items-start gap-3">
+            ${statusIcon}
+            <div class="min-w-0 flex-1">
+              <p class="break-words text-sm font-medium text-ink-700">${task.isPower ? "⚡ " : ""}${escapeHTML(task.title)}</p>
+              <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                ${metaLine}
+                ${task.tags.map((tag) => tagChipHTML(tag)).join("")}
+              </div>
             </div>
+            <button type="button" title="${hasNotes ? "Task note" : "Add a note"}" aria-label="Toggle task note" aria-expanded="${noteExpanded}"
+              class="${histNoteToggleClass(hasNotes, noteExpanded)}">
+              <svg class="histNoteChevron transition-transform duration-200 ${noteExpanded ? "rotate-180" : ""}" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                ${noteChevronMarkup(hasNotes)}
+              </svg>
+            </button>
+            <button type="button" title="Delete task" aria-label="Delete task"
+              class="histDeleteBtn mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-300 opacity-100 transition hover:bg-clay-50 hover:text-clay-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
           </div>
-          <button type="button" title="Delete task" aria-label="Delete task"
-            class="histDeleteBtn mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-300 opacity-100 transition hover:bg-clay-50 hover:text-clay-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
+          <div class="histTaskNotePanel ${noteExpanded ? "" : "hidden"} mt-2">
+            <textarea class="histTaskNoteInput w-full resize-none overflow-y-hidden rounded-lg border-0 bg-paper-50/80 px-2.5 py-1.5 text-xs text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" rows="1" data-task-id="${task.id}" placeholder="Note for this task…">${escapeHTML(task.notes || "")}</textarea>
+          </div>
         `;
 
         const histCheck = li.querySelector(".histCheck");
@@ -3544,8 +3611,40 @@
           });
         }
 
+        const noteToggle = li.querySelector(".histNoteToggle");
+        const notePanel = li.querySelector(".histTaskNotePanel");
+        const noteInput = li.querySelector(".histTaskNoteInput");
+        const noteChevron = li.querySelector(".histNoteChevron");
+        const syncHistNoteToggleStyle = () => {
+          const hasText = Boolean(noteInput.value.trim());
+          const expanded = !notePanel.classList.contains("hidden");
+          noteToggle.className = histNoteToggleClass(hasText, expanded);
+          noteToggle.title = hasText ? "Task note" : "Add a note";
+          setNoteChevron(noteChevron, hasText);
+        };
+        noteToggle.addEventListener("click", () => {
+          const nowHidden = notePanel.classList.toggle("hidden");
+          if (nowHidden) {
+            ui.expandedHistoryTaskNotes.delete(task.id);
+          } else {
+            ui.expandedHistoryTaskNotes.add(task.id);
+            noteInput.focus();
+            resizeDayNoteInput(noteInput);
+          }
+          noteToggle.setAttribute("aria-expanded", String(!nowHidden));
+          noteChevron.classList.toggle("rotate-180", !nowHidden);
+          syncHistNoteToggleStyle();
+        });
+        noteInput.addEventListener("input", () => {
+          task.notes = noteInput.value;
+          saveTasks();
+          resizeDayNoteInput(noteInput);
+          syncHistNoteToggleStyle();
+        });
+
         li.querySelector(".histDeleteBtn").addEventListener("click", () => openDeleteConfirm(task));
         list.appendChild(li);
+        if (noteExpanded) resizeDayNoteInput(noteInput);
       }
 
       renderHistoryDayNote(iso);
