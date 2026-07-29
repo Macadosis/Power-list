@@ -1083,7 +1083,7 @@
       return { freq: "daily" };
     }
 
-    /** Rebuild templates when tasks still reference a missing series id. */
+    /** Rebuild templates when incomplete tasks still reference a missing series id. */
     function reconstructMissingTemplates() {
       let changed = false;
       const ids = [...new Set(tasks.map((t) => t.recurrenceId).filter(Boolean))];
@@ -1091,8 +1091,21 @@
         if (recurringTemplates.find((t) => t.id === rid)) continue;
         const instances = tasks.filter((t) => t.recurrenceId === rid);
         if (!instances.length) continue;
-        const dates = [...new Set(instances.map((t) => t.recurrenceDate || t.date))].sort();
-        const sample = instances[0];
+
+        // Completed-only leftovers must not resurrect a series — that used to
+        // re-create power instances on later days and silently eat ⚡ slots.
+        const incomplete = instances.filter((t) => !t.completed);
+        if (!incomplete.length) {
+          for (const t of instances) {
+            delete t.recurrenceId;
+            delete t.recurrenceDate;
+          }
+          changed = true;
+          continue;
+        }
+
+        const dates = [...new Set(incomplete.map((t) => t.recurrenceDate || t.date))].sort();
+        const sample = incomplete[0];
         recurringTemplates.push({
           id: rid,
           title: sample.title,
@@ -1106,6 +1119,13 @@
           createdAt: sample.createdAt,
           skippedDates: [],
         });
+        // Detach completed siblings so they stay history-only.
+        for (const t of instances) {
+          if (t.completed) {
+            delete t.recurrenceId;
+            delete t.recurrenceDate;
+          }
+        }
         changed = true;
       }
       return changed;
@@ -1231,6 +1251,7 @@
       let changed = reconstructMissingTemplates();
       if (recoverOrphanSeries()) changed = true;
       if (pruneInvalidRecurringInstances()) changed = true;
+      if (dedupeRecurringOccurrences()) changed = true;
       if (ensureRecurringInstances()) changed = true;
       return changed;
     }
@@ -1316,6 +1337,16 @@
         tmpl.skippedDates.push(iso);
         tmpl.skippedDates.sort();
       }
+      // Clear any duplicate copies still linked to this same occurrence date
+      // (they would keep consuming power slots after a "delete occurrence").
+      const extras = tasks.filter(
+        (t) => t.id !== task.id && t.recurrenceId === task.recurrenceId && (t.recurrenceDate || t.date) === iso
+      );
+      if (extras.length) {
+        const extraIds = new Set(extras.map((t) => t.id));
+        tasks = tasks.filter((t) => !extraIds.has(t.id));
+        for (const t of extras) pruneDayNotesAfterDelete(t);
+      }
       return true;
     }
 
@@ -1337,7 +1368,12 @@
           delete t.recurrenceDate;
           return true;
         }
-        if (t.completed) return true;
+        if (t.completed) {
+          // Keep history, but detach so the series cannot resurrect on reconcile.
+          delete t.recurrenceId;
+          delete t.recurrenceDate;
+          return true;
+        }
         removed.push(t);
         return false;
       });
@@ -1815,24 +1851,23 @@
       return completedOn(iso).filter((t) => t.isPower).length;
     }
     /**
-     * Power slots used on a day (max POWER_GOAL).
-     * Counts every power task scheduled for that day (done or not), plus any
-     * power task completed that day even if it was scheduled earlier — so
-     * finishing overdue power work still fills today's 5-slot budget.
+     * Power *marking* slots used on a day (max POWER_GOAL).
+     * Only tasks scheduled for that day count — completed or not.
+     * Finishing an overdue power task today still counts toward the power-day
+     * score (completedAt), but must not steal a Today planning slot.
      */
     function powerTaskCountForDay(iso, excludeTaskId = null) {
-      const ids = new Set();
-      for (const t of tasks) {
-        if (!t.isPower || t.sidequest || t.id === excludeTaskId) continue;
-        if (t.date === iso) {
-          ids.add(t.id);
-          continue;
-        }
-        if (t.completed && t.completedAt && toISO(new Date(t.completedAt)) === iso) {
-          ids.add(t.id);
-        }
-      }
-      return ids.size;
+      if (!iso) return 0;
+      return tasks.filter((t) =>
+        t.isPower
+        && !t.sidequest
+        && t.id !== excludeTaskId
+        && t.date === iso
+      ).length;
+    }
+    /** Tasks currently occupying power marking slots for a day (for UI hints). */
+    function powerSlotTasksForDay(iso) {
+      return tasks.filter((t) => t.isPower && !t.sidequest && t.date === iso);
     }
     function canMarkAsPowerForDay(iso, excludeTaskId = null) {
       return powerTaskCountForDay(iso, excludeTaskId) < POWER_GOAL;
@@ -1843,10 +1878,13 @@
     /**
      * Keep "power tasks accomplished today" at POWER_GOAL. If this completion
      * would be a 6th+ power finish on its completion day, drop the power flag.
+     * Also: completing a future-dated power task early moves it onto today so
+     * it cannot keep blocking a future day's marking slot.
      */
     function enforcePowerCompletionCap(task) {
       if (!task.completed || !task.isPower || !task.completedAt) return;
       const day = toISO(new Date(task.completedAt));
+      if (task.date && task.date > day) task.date = day;
       const prior = tasks.filter((t) =>
         t.id !== task.id
         && t.isPower
@@ -1858,6 +1896,32 @@
     }
     function isPowerDay(iso) {
       return powerCompletedCount(iso) >= POWER_GOAL;
+    }
+
+    /** Remove duplicate recurring copies for the same occurrence date. */
+    function dedupeRecurringOccurrences() {
+      const seen = new Map();
+      const removed = [];
+      tasks = tasks.filter((t) => {
+        if (!t.recurrenceId) return true;
+        const key = `${t.recurrenceId}\0${t.recurrenceDate || t.date || ""}`;
+        const prev = seen.get(key);
+        if (!prev) {
+          seen.set(key, t);
+          return true;
+        }
+        // Prefer keeping a completed copy, otherwise the older one.
+        const keepPrev = prev.completed || (!t.completed && prev.createdAt <= t.createdAt);
+        if (keepPrev) {
+          removed.push(t);
+          return false;
+        }
+        removed.push(prev);
+        seen.set(key, t);
+        return true;
+      });
+      for (const task of removed) pruneDayNotesAfterDelete(task);
+      return removed.length > 0;
     }
     function bookedMinutesForDay(iso) {
       return tasks
@@ -2235,6 +2299,16 @@
       const powerChipStyle = powerAchieved
         ? "bg-moss-500 text-paper-50"
         : "bg-ochre-100 text-ochre-700";
+      const powerSlots = powerTaskCountForDay(iso);
+      const slotNames = powerSlotTasksForDay(iso)
+        .map((t) => t.title)
+        .slice(0, 8);
+      const slotHint = slotNames.length
+        ? ` · Holding slots: ${slotNames.join(", ")}${powerSlots > slotNames.length ? "…" : ""}`
+        : "";
+      const powerChipTitle = isFuture
+        ? `Power tasks planned: ${powerPlanned}/${POWER_GOAL} (max ${POWER_GOAL} per day)${slotHint}`
+        : `Power completed: ${powerDone}/${POWER_GOAL} · Slots used: ${powerSlots}/${POWER_GOAL}${slotHint}`;
 
       col.innerHTML = `
         <header class="mb-3 px-1">
@@ -2259,7 +2333,7 @@
           </div>
           <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span class="rounded-full bg-paper-300/70 px-2 py-0.5 text-[11px] font-bold text-ink-500">${remaining}</span>
-            <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${powerChipStyle}" title="Power tasks: ${POWER_GOAL} are mandatory each day">
+            <span class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${powerChipStyle}" title="${escapeHTML(powerChipTitle)}">
               ⚡ ${isFuture ? `${powerPlanned}/${POWER_GOAL}` : `${powerDone}/${POWER_GOAL}`}
             </span>
             <span class="flex items-center gap-1 whitespace-nowrap rounded-full bg-paper-300/70 px-2 py-0.5 text-[11px] font-bold text-ink-500" title="${escapeHTML(bookedTimeTitle())}">
@@ -2421,7 +2495,7 @@
                     ? grayPill
                     : "bg-ochre-100 text-ochre-600 ring-1 ring-ochre-400/50"
                   : powerAtLimit
-                    ? "pointer-events-none opacity-0"
+                    ? "cursor-not-allowed text-ink-300/30 opacity-0 group-hover:opacity-100"
                     : "text-ink-300/40 opacity-0 group-hover:opacity-100 hover:bg-paper-300/60 hover:text-ochre-600"
               }">⚡</button>
             <button type="button" title="${hasNotes ? "Task note" : "Add a note"}" aria-label="Toggle task note" aria-expanded="${noteExpanded}"
@@ -4197,8 +4271,21 @@
       }
     }
 
+    function modalPowerDay() {
+      // Power slots belong to the occurrence day on the board. For recurring
+      // edits the date field shows "series starts from", which must not be
+      // used for the ⚡ limit — that made the modal allow power while the
+      // card toggle stayed locked on today.
+      if (ui.editingTaskId) {
+        const task = tasks.find((t) => t.id === ui.editingTaskId);
+        if (task?.date && /^\d{4}-\d{2}-\d{2}$/.test(task.date)) return task.date;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(taskDateInput.value)) return taskDateInput.value;
+      return todayISO();
+    }
+
     function syncModalPowerLimit() {
-      const date = /^\d{4}-\d{2}-\d{2}$/.test(taskDateInput.value) ? taskDateInput.value : todayISO();
+      const date = modalPowerDay();
       const count = powerTaskCountForDay(date, ui.editingTaskId);
       const atLimit = count >= POWER_GOAL;
       const checked = taskPowerInput.checked;
@@ -4216,8 +4303,8 @@
       const hint = el("taskPowerHint");
       if (hint) {
         hint.textContent = atLimit && !checked
-          ? `${POWER_GOAL} power slots already used for this day (including completed)`
-          : `${count}/${POWER_GOAL} power slots used for this day`;
+          ? `${POWER_GOAL} power tasks already scheduled for this day`
+          : `${count}/${POWER_GOAL} power tasks scheduled for this day`;
       }
       if (canToggle) el("taskPowerError").classList.add("hidden");
     }
@@ -4344,7 +4431,8 @@
       const wantsPower = parkAsSidequest ? false : taskPowerInput.checked;
       const recurrence = parkAsSidequest ? null : readRecurrenceRuleFromModal();
       const recurring = !parkAsSidequest && taskRepeatInput.checked && recurrence;
-      if (!parkAsSidequest && wantsPower && !canMarkAsPowerForDay(date, ui.editingTaskId)) {
+      const powerDay = modalPowerDay();
+      if (!parkAsSidequest && wantsPower && !canMarkAsPowerForDay(powerDay, ui.editingTaskId)) {
         el("taskPowerError").classList.remove("hidden");
         syncModalPowerLimit();
         return;
@@ -4356,7 +4444,7 @@
         ? false
         : recurring
           ? wantsPower
-          : resolvePowerForDay(date, wantsPower, ui.editingTaskId);
+          : resolvePowerForDay(powerDay, wantsPower, ui.editingTaskId);
 
       let tags;
       if (ui.modalSidequestMode || parkAsSidequest) {
