@@ -1847,14 +1847,23 @@
         }
       }
     }
+    /**
+     * Completed power tasks that belong to this scheduled day.
+     * Same day-boundary as the ⚡ marking cap — overdue tasks finished today
+     * do not inflate Today's green 5/5 if they were planned for another date.
+     */
     function powerCompletedCount(iso) {
-      return completedOn(iso).filter((t) => t.isPower).length;
+      if (!iso) return 0;
+      return tasks.filter((t) =>
+        t.isPower
+        && !t.sidequest
+        && t.completed
+        && t.date === iso
+      ).length;
     }
     /**
      * Power *marking* slots used on a day (max POWER_GOAL).
      * Only tasks scheduled for that day count — completed or not.
-     * Finishing an overdue power task today still counts toward the power-day
-     * score (completedAt), but must not steal a Today planning slot.
      */
     function powerTaskCountForDay(iso, excludeTaskId = null) {
       if (!iso) return 0;
@@ -3191,7 +3200,7 @@
       }));
     }
 
-    function dashChartBuildPoints(taskFilter, minutesFor, start, end) {
+    function dashChartBuildPoints(taskFilter, minutesFor, start, end, bySchedule = false) {
       const buckets = dashChartBuildBuckets(start, end);
       return buckets.map((bucket) => {
         const daySet = new Set(bucket.days);
@@ -3201,7 +3210,10 @@
         for (const t of tasks) {
           if (!taskFilter(t)) continue;
           if (daySet.has(t.date)) available++;
-          if (t.completed && t.completedAt && daySet.has(toISO(new Date(t.completedAt)))) {
+          const countsCompleted = bySchedule
+            ? (t.completed && daySet.has(t.date))
+            : (t.completed && t.completedAt && daySet.has(toISO(new Date(t.completedAt))));
+          if (countsCompleted) {
             completed++;
             logged += minutesFor(t);
           }
@@ -3395,7 +3407,7 @@
 
       const { start: chartStart, end: chartEnd } = dashChartRangeBounds(inPowerScope);
       dashChartPoints = dashChartBuildPoints(inPowerScope, minutesFor, chartStart, chartEnd);
-      dashChartPowerPoints = dashChartBuildPoints((t) => t.isPower, minutesFor, chartStart, chartEnd);
+      dashChartPowerPoints = dashChartBuildPoints((t) => t.isPower, minutesFor, chartStart, chartEnd, true);
       if (dashChartHover >= dashChartPoints.length) dashChartHover = -1;
       const hasData = dashChartPoints.some((p) => p.available || p.completed || p.logged)
         || dashChartPowerPoints.some((p) => p.available || p.completed || p.logged);
@@ -3761,7 +3773,7 @@
       const iso = ui.selectedHistoryDate;
       const dayTasks = historyTasksForDay(iso);
       const done = completedOn(iso).filter(matchesFilter);
-      const powerDone = done.filter((t) => t.isPower).length;
+      const powerDone = powerCompletedCount(iso);
       const loggedMin = done.reduce((sum, t) => sum + loggedMinutesFor(t), 0);
       el("historyDayLabel").textContent = fullDate(iso);
       el("historyDaySummary").textContent = done.length
