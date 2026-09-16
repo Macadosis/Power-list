@@ -2153,28 +2153,45 @@
       let sawTimed = false;
       let scheduleAnchored = false;
       let endGapShown = false;
-      const hasIncompleteTimed = scheduleTasks.some((t) => t.time && !t.completed);
+      const hasIncompleteTimed = scheduleTasks.some(
+        (t) => t.time && !t.completed && timeToMinutes(t.time) < DAY_SCHEDULE_END
+      );
 
       const pushGap = (mins, relevant) => {
         if (mins > 0 && relevant) items.push({ type: "gap", minutes: mins });
       };
 
+      const closePlanningWindow = () => {
+        if (!endGapShown && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
+          pushGap(DAY_SCHEDULE_END - lastTimedEnd, hasIncompleteTimed);
+          endGapShown = true;
+        }
+      };
+
       for (const task of scheduleTasks) {
         if (!task.time) {
-          if (!endGapShown && scheduleAnchored && lastTimedEnd < DAY_SCHEDULE_END) {
-            pushGap(DAY_SCHEDULE_END - lastTimedEnd, hasIncompleteTimed);
-            endGapShown = true;
-          }
+          closePlanningWindow();
           if (visibleTaskIds.has(task.id)) items.push({ type: "task", task });
           continue;
         }
         sawTimed = true;
         const start = timeToMinutes(task.time);
+
+        // After 17:00: show the task but don't treat it as part of the 08:00–17:00 gap math.
+        if (start >= DAY_SCHEDULE_END) {
+          closePlanningWindow();
+          if (visibleTaskIds.has(task.id)) items.push({ type: "task", task });
+          continue;
+        }
+
         if (start > lastTimedEnd) pushGap(start - lastTimedEnd, !task.completed);
         if (visibleTaskIds.has(task.id)) items.push({ type: "task", task });
         const block = scheduledBlockMinutes(task);
         if (block > 0) {
-          lastTimedEnd = Math.max(lastTimedEnd, start + block);
+          lastTimedEnd = Math.min(
+            DAY_SCHEDULE_END,
+            Math.max(lastTimedEnd, start + block)
+          );
           scheduleAnchored = true;
         }
       }
