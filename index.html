@@ -2320,6 +2320,8 @@
         frame = "bg-paper-200/70 ring-1 ring-ink-900/10";
       }
       col.className = "flex min-h-[320px] flex-col rounded-2xl p-3 transition " + frame;
+      col.dataset.dropzone = "day";
+      col.dataset.date = iso;
 
       const labelColor = powerAchieved ? "text-moss-700" : isToday ? "text-brand-600" : "text-ink-500";
       const powerChipStyle = powerAchieved
@@ -2374,7 +2376,7 @@
         <div class="dayNotePanel ${noteExpanded ? "" : "hidden"} mb-2 px-1">
           <textarea class="dayNoteInput w-full resize-none overflow-y-hidden rounded-xl border-0 bg-paper-200/60 px-3 py-2 text-xs text-ink-700 ring-1 ring-ink-900/10 transition placeholder:text-ink-300 focus:bg-paper-50 focus:outline-none focus:ring-2 focus:ring-brand-500" rows="1" data-date="${iso}" placeholder="Day note…">${escapeHTML(dayNotes[iso] || "")}</textarea>
         </div>
-        <div class="taskList flex flex-1 flex-col gap-2 rounded-xl p-0.5 transition" data-dropzone="day" data-date="${iso}"></div>
+        <div class="taskList flex min-h-0 flex-1 flex-col gap-2 rounded-xl p-0.5 transition"></div>
       `;
 
       const listEl = col.querySelector(".taskList");
@@ -2389,7 +2391,7 @@
 
       if (dayTasks.length === 0) {
         const empty = document.createElement("p");
-        empty.className = "pointer-events-none px-2 py-6 text-center text-xs text-ink-300";
+        empty.className = "pointer-events-none flex flex-1 items-center justify-center px-2 py-6 text-center text-xs text-ink-300";
         empty.textContent = "No tasks — drop one here or click +";
         listEl.appendChild(empty);
       }
@@ -2435,7 +2437,7 @@
         syncDayNoteToggleStyle();
       });
 
-      attachDropzone(listEl);
+      attachDropzone(col);
       return col;
     }
 
@@ -2784,6 +2786,12 @@
       if (!task.completed) attachTouchDrag(node, task);
     }
 
+    function cardListForZone(zone) {
+      return zone.dataset.dropzone === "day"
+        ? (zone.querySelector(".taskList") || zone)
+        : zone;
+    }
+
     function cardAfterPosition(container, y) {
       const cards = [...container.querySelectorAll("[data-task-id]:not(.dragging)")];
       let closest = { offset: -Infinity, element: null };
@@ -2795,30 +2803,43 @@
       return closest.element;
     }
 
+    function highlightDropzone(zone, clientY) {
+      document.querySelectorAll(".dropzone-active").forEach((z) => {
+        if (z !== zone) z.classList.remove("dropzone-active");
+      });
+      removeDropIndicator();
+      if (!zone) return;
+      zone.classList.add("dropzone-active");
+      if (zone.dataset.dropzone === "day") {
+        const list = cardListForZone(zone);
+        const after = cardAfterPosition(list, clientY);
+        const ind = getDropIndicator();
+        if (after) list.insertBefore(ind, after);
+        else list.appendChild(ind);
+      }
+    }
+
     function attachDropzone(zone) {
       zone.addEventListener("dragover", (e) => {
         if (!draggedTaskId) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
-        zone.classList.add("dropzone-active");
-
-        if (zone.dataset.dropzone === "day") {
-          const after = cardAfterPosition(zone, e.clientY);
-          const ind = getDropIndicator();
-          if (after) zone.insertBefore(ind, after);
-          else zone.appendChild(ind);
-        }
+        highlightDropzone(zone, e.clientY);
       });
 
       zone.addEventListener("dragleave", (e) => {
         if (!zone.contains(e.relatedTarget)) {
           zone.classList.remove("dropzone-active");
-          if (dropIndicator && dropIndicator.parentNode === zone) removeDropIndicator();
+          const list = cardListForZone(zone);
+          if (dropIndicator && (dropIndicator.parentNode === zone || dropIndicator.parentNode === list)) {
+            removeDropIndicator();
+          }
         }
       });
 
       zone.addEventListener("drop", (e) => {
         e.preventDefault();
+        e.stopPropagation();
         zone.classList.remove("dropzone-active");
         const id = draggedTaskId || e.dataTransfer.getData("text/plain");
         removeDropIndicator();
@@ -2846,7 +2867,8 @@
         task.isPower = false;
       } else {
         const targetDate = zone.dataset.date;
-        const after = cardAfterPosition(zone, clientY);
+        const list = cardListForZone(zone);
+        const after = cardAfterPosition(list, clientY);
         const fromSidequest = Boolean(task.sidequest);
         task.sidequest = false;
         task.date = targetDate;
@@ -2900,10 +2922,24 @@
     document.addEventListener("dragover", (e) => {
       if (!draggedTaskId) return;
       e.preventDefault(); // allow dropping anywhere on the page, not just zones
+      e.dataTransfer.dropEffect = "move";
       mouseScroll.y = e.clientY;
       if (!mouseScroll.raf) mouseScroll.raf = requestAnimationFrame(mouseScrollTick);
+      // Hit-test the column (or tray) under the cursor so empty day frames
+      // activate as soon as their border is crossed — not only the task list box.
+      highlightDropzone(zoneUnderPoint(e.clientX, e.clientY), e.clientY);
     });
-    document.addEventListener("drop", stopMouseScroll);
+    document.addEventListener("drop", (e) => {
+      stopMouseScroll();
+      if (!draggedTaskId) return;
+      const zone = zoneUnderPoint(e.clientX, e.clientY);
+      if (!zone) return;
+      e.preventDefault();
+      const id = draggedTaskId || e.dataTransfer.getData("text/plain");
+      removeDropIndicator();
+      document.querySelectorAll(".dropzone-active").forEach((z) => z.classList.remove("dropzone-active"));
+      performDrop(zone, id, e.clientY);
+    });
     document.addEventListener("dragend", stopMouseScroll);
 
     // ---------- Touch drag (iOS Safari has no native HTML5 drag events) ----------
@@ -2939,8 +2975,17 @@
     }
 
     function zoneUnderPoint(x, y) {
-      const under = document.elementFromPoint(x, y);
-      return under ? under.closest("[data-dropzone]") : null;
+      const stack = typeof document.elementsFromPoint === "function"
+        ? document.elementsFromPoint(x, y)
+        : [document.elementFromPoint(x, y)].filter(Boolean);
+      for (const under of stack) {
+        if (!under || !under.closest) continue;
+        // Skip the drag ghost / source pill so the day column underneath wins.
+        if (under.closest(".dragging") || under === touchState.ghost) continue;
+        const zone = under.closest("[data-dropzone]");
+        if (zone) return zone;
+      }
+      return null;
     }
 
     function beginTouchDrag(x, y) {
@@ -2969,21 +3014,7 @@
       touchState.lastY = y;
       touchState.ghost.style.left = (x - touchState.offsetX) + "px";
       touchState.ghost.style.top = (y - touchState.offsetY) + "px";
-
-      const zone = zoneUnderPoint(x, y);
-      document.querySelectorAll(".dropzone-active").forEach((z) => {
-        if (z !== zone) z.classList.remove("dropzone-active");
-      });
-      removeDropIndicator();
-      if (zone) {
-        zone.classList.add("dropzone-active");
-        if (zone.dataset.dropzone === "day") {
-          const after = cardAfterPosition(zone, y);
-          const ind = getDropIndicator();
-          if (after) zone.insertBefore(ind, after);
-          else zone.appendChild(ind);
-        }
-      }
+      highlightDropzone(zoneUnderPoint(x, y), y);
     }
 
     function finishTouchDrag(x, y) {
